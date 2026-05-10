@@ -422,6 +422,7 @@ body {
         </div>
         <div class="player-list" id="playerList"></div>
         <div>
+          <button class="btn btn-outline btn-sm" onclick="reconnectRoom()" title="重新连接">🔄 刷新连接</button>
           <button class="btn btn-primary btn-sm" id="startGameBtn" onclick="startGame()" style="display:none;">开始游戏</button>
           <button class="btn btn-outline btn-sm" id="leaveRoomBtn" onclick="leaveRoom()">离开</button>
         </div>
@@ -1058,20 +1059,49 @@ document.querySelectorAll('#drawingTools .tool-btn[data-tool]').forEach(btn => {
   });
 });
 
-// PeerJS
+// PeerJS with reliable ICE servers (China-compatible)
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.qq.com:3478' },
+    { urls: 'stun:stun.miwifi.com:3478' },
+    { urls: 'stun:stun.xten.com:3478' },
+    { urls: 'stun:stun.voipbuster.com:3478' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 2
+};
+
 function initPeer(customId) {
   if (peer) { peer.destroy(); peer = null; }
   connections = {};
   myPeerId = null;
 
-  const opts = { debug: 0 };
+  const opts = { debug: 0, config: ICE_SERVERS };
   peer = customId ? new Peer(customId, opts) : new Peer(opts);
 
   peer.on('open', (id) => {
     myPeerId = id;
+    console.log('PeerJS ready, ID:', id);
   });
 
   peer.on('connection', (conn) => {
+    console.log('Incoming connection from:', conn.peer);
     setupConnection(conn);
   });
 
@@ -1081,17 +1111,22 @@ function initPeer(customId) {
       showToast('房间号已被占用，请换一个');
       resetToLobby();
     } else if (err.type === 'peer-unavailable') {
-      showToast('无法连接到该房间，请确认房间号正确');
-      resetToLobby();
+      showToast('无法连接到该房间，请确认房间号正确且房主在线');
+    } else if (err.type === 'server-error') {
+      showToast('信令服务器连接失败，请检查网络后刷新重试');
+    } else if (err.type === 'network') {
+      showToast('网络连接失败，请检查网络');
     } else {
       showToast('连接出错: ' + (err.message || err.type));
     }
   });
 
   peer.on('disconnected', () => {
-    // Try to reconnect
+    console.log('Peer disconnected, trying to reconnect...');
     if (peer && !peer.destroyed) {
-      peer.reconnect();
+      setTimeout(() => {
+        if (peer && !peer.destroyed) peer.reconnect();
+      }, 1000);
     }
   });
 }
@@ -1349,6 +1384,48 @@ function createRoom() {
   }, 200);
 }
 
+let joinRetryCount = 0;
+const MAX_JOIN_RETRIES = 3;
+
+function doJoinRoom() {
+  const code = roomId;
+  if (!code || !peer || peer.destroyed) return;
+
+  addChatMessage('system', '正在连接房间... (尝试 ' + (joinRetryCount + 1) + '/' + MAX_JOIN_RETRIES + ')');
+
+  const conn = peer.connect(code, {
+    reliable: true,
+    serialization: 'json'
+  });
+  setupConnection(conn);
+
+  // Check if connection succeeded
+  setTimeout(() => {
+    if (Object.keys(connections).length === 0) {
+      joinRetryCount++;
+      if (joinRetryCount < MAX_JOIN_RETRIES) {
+        addChatMessage('system', '连接失败，正在重试...');
+        // Destroy old peer and create a new one for fresh ICE candidates
+        if (peer) { peer.destroy(); peer = null; }
+        myPeerId = null;
+        initPeer();
+        const waitForPeer = setInterval(() => {
+          if (myPeerId) {
+            clearInterval(waitForPeer);
+            setTimeout(() => doJoinRoom(), 500);
+          }
+        }, 200);
+      } else {
+        addChatMessage('system', '多次连接失败，请确认：');
+        addChatMessage('system', '1. 房间号是否正确');
+        addChatMessage('system', '2. 房主是否在线');
+        addChatMessage('system', '3. 双方网络是否正常');
+        addChatMessage('system', '💡 提示：房主和客人都尝试关闭并重新创建/加入房间');
+      }
+    }
+  }, 10000);
+}
+
 function joinRoom() {
   playerName = document.getElementById('gameNickname').value.trim();
   const code = document.getElementById('joinRoomCode').value.trim();
@@ -1356,6 +1433,7 @@ function joinRoom() {
   if (!code) { showToast('请输入房间号'); return; }
 
   isRoomHost = false;
+  joinRetryCount = 0;
   initPeer();
 
   const checkPeer = setInterval(() => {
@@ -1369,19 +1447,36 @@ function joinRoom() {
       document.getElementById('startGameBtn').style.display = 'none';
       window.location.hash = code;
       saveRoomState();
-      addChatMessage('system', '正在连接房间...');
-
-      const conn = peer.connect(code, { reliable: true });
-      setupConnection(conn);
-
-      // Timeout for connection
-      setTimeout(() => {
-        if (Object.keys(connections).length === 0) {
-          addChatMessage('system', '连接超时，请确认房间号正确且房主在线');
-        }
-      }, 8000);
+      doJoinRoom();
     }
   }, 200);
+}
+
+function reconnectRoom() {
+  // Re-establish connections without leaving the room
+  if (isRoomHost) {
+    // Host: just wait for reconnections. Player list stays.
+    addChatMessage('system', '等待玩家重新连接...');
+    updateGameUI();
+  } else {
+    // Guest: try to reconnect to host
+    if (!roomId) return;
+    addChatMessage('system', '重新连接到房间...');
+    joinRetryCount = 0;
+    // Close existing connections
+    Object.values(connections).forEach(c => { try { c.close(); } catch(e){} });
+    connections = {};
+    // Re-init peer and connect
+    if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
+    myPeerId = null;
+    initPeer();
+    const waitForPeer = setInterval(() => {
+      if (myPeerId) {
+        clearInterval(waitForPeer);
+        doJoinRoom();
+      }
+    }, 200);
+  }
 }
 
 function leaveRoom() {
