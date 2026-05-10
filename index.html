@@ -1184,8 +1184,17 @@ function setupConnection(conn) {
 }
 
 function broadcast(data) {
-  Object.values(connections).forEach(conn => {
-    if (conn.open) conn.send(data);
+  const conns = Object.values(connections);
+  if (conns.length === 0) {
+    console.warn('[broadcast] No connections to send:', data.type);
+    return;
+  }
+  conns.forEach(conn => {
+    try {
+      conn.send(data);
+    } catch(e) {
+      console.error('[broadcast] Send failed for', data.type, e);
+    }
   });
 }
 
@@ -1274,14 +1283,16 @@ function handleGameData(data, fromPeerId) {
       break;
 
     case 'guess':
+      console.log('[guess] from', data.name, 'correct:', data.correct, 'isRoomHost:', isRoomHost, 'roundEnded:', roundEnded);
       if (data.correct) {
         guessedPeers.add(data.peerId);
         players = data.players;
         addChatMessage('correct', data.name + ' 猜对了！🎉 (+' + data.points + '分)');
         updateGameUI();
-        // Host checks if everyone guessed
-        if (isRoomHost && guessedPeers.size >= Object.keys(players).length - 1) {
-          setTimeout(() => endRound(), 800);
+        console.log('[guess] guessedPeers.size:', guessedPeers.size, 'nonDrawers:', Object.keys(players).length - 1);
+        if (isRoomHost && !roundEnded && guessedPeers.size >= Object.keys(players).length - 1) {
+          console.log('[guess] Triggering endRound from host');
+          endRound();
         }
       } else {
         addChatMessage('normal', data.name + ': ' + data.text);
@@ -1649,10 +1660,12 @@ function startGame() {
 }
 
 function newRound() {
+  console.log('[newRound] currentRound:', currentRound, 'players:', Object.keys(players).length, 'gameActive:', gameActive);
   roundEnded = false;
   const playerIds = Object.keys(players);
   const drawerIdx = currentRound % playerIds.length;
   const drawerPeerId = playerIds[drawerIdx];
+  console.log('[newRound] drawerIdx:', drawerIdx, 'drawer:', players[drawerPeerId]?.name);
 
   playerIds.forEach(pid => { players[pid].isDrawer = (pid === drawerPeerId); });
   guessedPeers.clear();
@@ -1685,7 +1698,8 @@ function newRound() {
 }
 
 function endRound() {
-  if (roundEnded) return;
+  console.log('[endRound] called, roundEnded:', roundEnded, 'gameActive:', gameActive, 'isRoomHost:', isRoomHost);
+  if (roundEnded) { console.log('[endRound] Already ended, returning'); return; }
   roundEnded = true;
   if (roundTimer) { clearInterval(roundTimer); roundTimer = null; }
 
@@ -1742,6 +1756,7 @@ function sendGuess() {
   }
 
   const correct = text === currentWord;
+  console.log('[sendGuess] text:', text, 'currentWord:', currentWord, 'correct:', correct, 'isRoomHost:', isRoomHost, 'myTurn:', myTurn);
 
   if (correct) {
     guessedPeers.add(myPeerId);
@@ -1762,11 +1777,12 @@ function sendGuess() {
 
     // Trigger round end check
     const nonDrawerCount = Object.keys(players).length - 1;
-    if (guessedPeers.size >= nonDrawerCount) {
-      // All non-drawers guessed correctly — end round
-      setTimeout(() => {
-        if (isRoomHost && !roundEnded) endRound();
-      }, 500);
+    console.log('[sendGuess] guessedPeers.size:', guessedPeers.size, 'nonDrawerCount:', nonDrawerCount);
+    if (isRoomHost && !roundEnded && guessedPeers.size >= nonDrawerCount) {
+      console.log('[sendGuess] Host guessed correctly, ending round');
+      endRound();
+    } else if (!isRoomHost && guessedPeers.size >= nonDrawerCount) {
+      console.log('[sendGuess] Guest guessed, waiting for host to end round');
     }
   } else {
     broadcast({ type: 'guess', name: playerName, peerId: myPeerId, text, correct: false });
