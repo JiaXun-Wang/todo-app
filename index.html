@@ -1099,9 +1099,21 @@ function initPeer(customId) {
 function setupConnection(conn) {
   connections[conn.peer] = conn;
 
-  conn.on('open', () => {
-    conn.send({ type: 'join_info', name: playerName, peerId: myPeerId });
+  // HOST: immediately add placeholder when someone connects
+  if (isRoomHost && !players[conn.peer]) {
+    players[conn.peer] = { name: '加入中...', score: 0, isDrawer: false };
     broadcastPlayerList();
+    updateGameUI();
+  }
+
+  conn.on('open', () => {
+    // Send our info to the other peer
+    conn.send({ type: 'join_info', name: playerName, peerId: myPeerId, isHost: isRoomHost });
+    // Host sends current room state to the new peer
+    if (isRoomHost) {
+      conn.send({ type: 'player_list', players, roomName });
+      if (roomName) conn.send({ type: 'room_name', roomName });
+    }
   });
 
   conn.on('data', (data) => {
@@ -1109,10 +1121,12 @@ function setupConnection(conn) {
   });
 
   conn.on('close', () => {
+    const name = players[conn.peer]?.name || conn.peer;
     delete connections[conn.peer];
     delete players[conn.peer];
     broadcastPlayerList();
     updateGameUI();
+    addChatMessage('system', name + ' 离开了房间');
   });
 
   conn.on('error', (err) => {
@@ -1133,15 +1147,28 @@ function broadcast(data) {
 function handleGameData(data, fromPeerId) {
   switch (data.type) {
     case 'join_info':
-      players[data.peerId] = { name: data.name, score: 0, isDrawer: false };
+      // Update or create player entry
+      const prevName = players[data.peerId]?.name || '';
+      players[data.peerId] = {
+        name: data.name,
+        score: players[data.peerId]?.score || 0,
+        isDrawer: players[data.peerId]?.isDrawer || false
+      };
       broadcastPlayerList();
-      addChatMessage('system', data.name + ' 加入了房间 🎉');
+      if (prevName !== data.name) {
+        addChatMessage('system', data.name + ' 加入了房间 🎉');
+      }
       updateGameUI();
       break;
 
     case 'player_list':
       players = data.players;
       if (data.roomName) roomName = data.roomName;
+      updateGameUI();
+      break;
+
+    case 'room_name':
+      roomName = data.roomName;
       updateGameUI();
       break;
 
@@ -1264,6 +1291,7 @@ function broadcastPlayerList() {
 }
 
 function resetToLobby() {
+  sessionStorage.removeItem('game_room_state');
   if (peer) { peer.destroy(); peer = null; }
   connections = {};
   players = {};
@@ -1313,6 +1341,7 @@ function createRoom() {
 
       // Update URL hash for sharing
       window.location.hash = roomId;
+      saveRoomState();
 
       updateGameUI();
       addChatMessage('system', '房间已创建！点击「🔗 分享」复制链接发给朋友');
@@ -1339,6 +1368,7 @@ function joinRoom() {
       document.getElementById('gameRoom').style.display = 'block';
       document.getElementById('startGameBtn').style.display = 'none';
       window.location.hash = code;
+      saveRoomState();
       addChatMessage('system', '正在连接房间...');
 
       const conn = peer.connect(code, { reliable: true });
@@ -1530,21 +1560,81 @@ function updateGameUI() {
   if (cd && roomId) cd.textContent = roomId;
 }
 
-// Auto-join from URL hash
+// === Session persistence for page refresh ===
+function saveRoomState() {
+  if (!roomId) return;
+  const state = {
+    playerName, roomId, roomName, isRoomHost,
+    savedAt: Date.now()
+  };
+  sessionStorage.setItem('game_room_state', JSON.stringify(state));
+}
+
+function restoreRoomState() {
+  const raw = sessionStorage.getItem('game_room_state');
+  if (!raw) return false;
+  try {
+    const state = JSON.parse(raw);
+    // Only restore if saved within last 30 minutes
+    if (Date.now() - state.savedAt > 30 * 60 * 1000) {
+      sessionStorage.removeItem('game_room_state');
+      return false;
+    }
+    return state;
+  } catch { return false; }
+}
+
+// Save state before page unload
+window.addEventListener('beforeunload', () => {
+  saveRoomState();
+});
+
+// Also save periodically while in room
+setInterval(() => {
+  if (roomId && (document.getElementById('gameRoom').style.display !== 'none')) {
+    saveRoomState();
+  }
+}, 5000);
+
+// Auto-join from URL hash or session state
 function checkUrlHash() {
   const hash = window.location.hash.slice(1);
-  if (hash && hash.length >= 4 && hash.length <= 30 && /^[a-zA-Z0-9_-]+$/.test(hash)) {
-    // Switch to game tab
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    const gameTabBtn = document.querySelector('.tab-btn:nth-child(2)');
-    if (gameTabBtn) gameTabBtn.classList.add('active');
-    document.getElementById('panel-game').classList.add('active');
 
+  // First check for session-based room recovery (page refresh)
+  const savedState = restoreRoomState();
+  if (savedState && !hash) {
+    // User was in a room before refresh — auto rejoin
+    switchToGameTab();
+    playerName = savedState.playerName;
+    roomName = savedState.roomName || '';
+    document.getElementById('gameNickname').value = playerName;
+    if (savedState.isRoomHost) {
+      document.getElementById('createRoomName').value = roomName;
+      document.getElementById('createRoomCode').value = savedState.roomId;
+      addGameToast('检测到之前的房间，正在重新创建...');
+      createRoom();
+    } else {
+      document.getElementById('joinRoomCode').value = savedState.roomId;
+      addGameToast('检测到之前的房间，输入昵称后点击加入');
+    }
+    return;
+  }
+
+  // URL hash sharing link
+  if (hash && hash.length >= 4 && hash.length <= 50 && /^[a-zA-Z0-9_-]+$/.test(hash)) {
+    switchToGameTab();
     document.getElementById('joinRoomCode').value = hash;
     document.getElementById('gameNickname').focus();
     addGameToast('检测到房间链接，输入昵称后点击加入');
   }
+}
+
+function switchToGameTab() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const gameTabBtn = document.querySelector('.tab-btn:nth-child(2)');
+  if (gameTabBtn) gameTabBtn.classList.add('active');
+  document.getElementById('panel-game').classList.add('active');
 }
 
 function addGameToast(msg) {
