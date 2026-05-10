@@ -1,0 +1,1442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Todo + 你画我猜</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #f5f6f8; --card-bg: #ffffff; --text: #1d1d1f;
+  --text-secondary: #86868b; --text-tertiary: #aeaeb2; --border: #e5e5ea;
+  --accent: #007aff; --accent-light: #e8f2ff; --danger: #ff3b30;
+  --danger-light: #ffe5e3; --success: #34c759; --warning: #ff9500;
+  --warning-light: #fff3e0; --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --radius: 12px; --radius-sm: 8px; --radius-xs: 6px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh;
+  display: flex; justify-content: center; padding: 40px 20px;
+}
+
+.app { width: 100%; max-width: 850px; }
+
+/* Tab Nav */
+.tab-nav {
+  display: flex; gap: 4px; margin-bottom: 28px; background: var(--card-bg);
+  border-radius: var(--radius); padding: 4px; box-shadow: var(--shadow-sm);
+}
+.tab-btn {
+  flex: 1; padding: 10px 20px; border-radius: 10px; border: none; cursor: pointer;
+  font-size: 15px; font-weight: 500; font-family: inherit; background: transparent;
+  color: var(--text-secondary); transition: all 0.2s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { background: var(--accent); color: #fff; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Animal decorations */
+.animal-paw {
+  position: fixed; pointer-events: none; opacity: 0.06; font-size: 60px;
+  z-index: 0; user-select: none;
+}
+.animal-paw.p1 { top: 60px; left: 30px; transform: rotate(-20deg); }
+.animal-paw.p2 { bottom: 80px; right: 40px; transform: rotate(25deg); }
+.animal-paw.p3 { top: 50%; right: 20px; transform: rotate(10deg); font-size: 40px; opacity: 0.04; }
+.animal-bird {
+  position: fixed; top: 30px; right: 50px; font-size: 28px; pointer-events: none;
+  z-index: 0; opacity: 0.08; animation: birdFloat 6s ease-in-out infinite;
+}
+@keyframes birdFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-15px) rotate(3deg); }
+  75% { transform: translateY(-5px) rotate(-3deg); }
+}
+
+/* Header */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+}
+.header h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+.header-actions { display: flex; gap: 8px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--radius-xs);
+  font-size: 14px; font-weight: 500; cursor: pointer; border: none;
+  transition: all 0.15s ease; font-family: inherit;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #0068d6; }
+.btn-outline { background: var(--card-bg); color: var(--accent); border: 1px solid var(--border); }
+.btn-outline:hover { background: var(--accent-light); }
+.btn-danger { background: var(--card-bg); color: var(--danger); border: 1px solid var(--border); }
+.btn-danger:hover { background: var(--danger-light); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { opacity: 0.85; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-block { width: 100%; justify-content: center; }
+
+/* Toolbar */
+.toolbar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.search-box { flex: 1; min-width: 200px; position: relative; }
+.search-box input {
+  width: 100%; padding: 10px 14px 10px 36px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); font-size: 14px; font-family: inherit;
+  background: var(--card-bg); outline: none; transition: border-color 0.15s;
+}
+.search-box input:focus { border-color: var(--accent); }
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); font-size: 15px; pointer-events: none;
+}
+.filter-select {
+  padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  font-size: 14px; font-family: inherit; background: var(--card-bg); outline: none; cursor: pointer;
+}
+.filter-select:focus { border-color: var(--accent); }
+
+/* Stats + Batch */
+.stats-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);
+}
+.batch-actions { display: flex; gap: 8px; align-items: center; }
+.batch-actions.hidden { display: none; }
+.select-all-btn { font-size: 13px; color: var(--accent); cursor: pointer; background: none; border: none; }
+
+/* Todo list */
+.todo-list { display: flex; flex-direction: column; gap: 6px; }
+.todo-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: var(--card-bg); border-radius: var(--radius); border: 1px solid var(--border);
+  transition: all 0.15s ease; cursor: grab; user-select: none;
+}
+.todo-item:hover { border-color: #c0c0c8; box-shadow: var(--shadow-sm); }
+.todo-item:active { cursor: grabbing; }
+.todo-item.dragging { opacity: 0.5; background: var(--accent-light); }
+.todo-item.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+.todo-item.completed .todo-title { text-decoration: line-through; color: var(--text-tertiary); }
+.todo-item.overdue { border-left: 3px solid var(--danger); }
+
+.checkbox {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border);
+  flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.checkbox:hover { border-color: var(--accent); }
+.checkbox.checked { background: var(--success); border-color: var(--success); }
+.checkbox.checked::after { content: '✓'; color: #fff; font-size: 12px; font-weight: 700; }
+
+.todo-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.todo-title { font-size: 15px; font-weight: 500; word-break: break-word; }
+.todo-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+
+.tag { padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.tag-category { background: var(--accent-light); color: var(--accent); }
+.tag-priority-high { background: var(--danger-light); color: var(--danger); }
+.tag-priority-medium { background: var(--warning-light); color: var(--warning); }
+.tag-priority-low { background: #e8f5e9; color: #4caf50; }
+
+.due-date { white-space: nowrap; }
+.due-date.today { color: var(--warning); font-weight: 600; }
+.due-date.overdue { color: var(--danger); font-weight: 600; }
+.due-date.normal { color: var(--text-secondary); }
+.reminder-tag { color: #8e44ad; font-weight: 500; }
+
+.todo-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.todo-actions button {
+  width: 28px; height: 28px; border-radius: 50%; border: none; cursor: pointer;
+  background: transparent; color: var(--text-tertiary); font-size: 14px;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.todo-actions button:hover { background: var(--bg); color: var(--text); }
+.todo-actions .btn-edit:hover { color: var(--accent); }
+.todo-actions .btn-delete:hover { color: var(--danger); }
+
+.select-check {
+  width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--border);
+  flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.select-check.selected { background: var(--accent); border-color: var(--accent); }
+.select-check.selected::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; }
+
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-tertiary); }
+.empty-state-icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 15px; }
+
+/* Category */
+.category-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.category-chip {
+  padding: 4px 10px; border-radius: 100px; font-size: 13px;
+  background: var(--bg); border: 1px solid var(--border); cursor: pointer;
+  display: flex; align-items: center; gap: 4px; transition: all 0.15s;
+}
+.category-chip:hover { border-color: var(--accent); }
+.category-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.category-chip .chip-count { font-size: 11px; opacity: 0.7; }
+.drag-handle { color: var(--text-tertiary); cursor: grab; font-size: 14px; flex-shrink: 0; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+  animation: fadeIn 0.2s ease;
+}
+.modal {
+  background: var(--card-bg); border-radius: var(--radius); padding: 24px;
+  width: 90%; max-width: 500px; box-shadow: var(--shadow-md);
+  animation: slideUp 0.25s ease; max-height: 90vh; overflow-y: auto;
+}
+.modal h2 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px;
+}
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); font-size: 14px; font-family: inherit;
+  outline: none; background: var(--bg); transition: border-color 0.15s;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+.form-row { display: flex; gap: 12px; }
+.form-row .form-group { flex: 1; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  background: #1d1d1f; color: #fff; padding: 10px 20px; border-radius: 100px;
+  font-size: 14px; z-index: 200; animation: slideUp 0.3s ease; box-shadow: var(--shadow-md);
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ============ GAME STYLES ============ */
+.game-lobby { text-align: center; padding: 20px; }
+.game-lobby h2 { font-size: 24px; margin-bottom: 8px; }
+.game-lobby .lobby-animals { font-size: 40px; margin-bottom: 16px; letter-spacing: 8px; }
+.game-lobby .form-group { text-align: left; max-width: 360px; margin: 0 auto 14px; }
+.game-room-info {
+  background: var(--card-bg); border-radius: var(--radius); padding: 12px 16px;
+  margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px; border: 1px solid var(--border);
+}
+.room-code { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: 2px; }
+.player-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.player-badge {
+  padding: 4px 10px; border-radius: 100px; font-size: 12px; font-weight: 500;
+  background: var(--accent-light); color: var(--accent);
+}
+.player-badge.is-drawer { background: var(--warning-light); color: var(--warning); }
+.player-badge.me { border: 2px solid var(--accent); }
+
+.game-main { display: flex; gap: 12px; flex-wrap: wrap; }
+.game-canvas-area { flex: 1; min-width: 300px; }
+.game-canvas-area canvas {
+  width: 100%; border-radius: var(--radius); border: 2px solid var(--border);
+  background: #fff; cursor: crosshair; touch-action: none;
+}
+.drawing-tools {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-top: 8px; padding: 8px 12px; background: var(--card-bg);
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+.drawing-tools input[type="color"] {
+  width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--border);
+  cursor: pointer; padding: 0;
+}
+.drawing-tools input[type="range"] { width: 80px; }
+.drawing-tools .tool-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border);
+  cursor: pointer; background: var(--card-bg); font-size: 14px;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.drawing-tools .tool-btn:hover { border-color: var(--accent); }
+.drawing-tools .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tool-divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+
+.game-sidebar {
+  width: 240px; display: flex; flex-direction: column; gap: 10px;
+}
+.game-chat {
+  flex: 1; min-height: 200px; background: var(--card-bg); border-radius: var(--radius);
+  border: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.chat-messages {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
+  font-size: 13px; margin-bottom: 8px;
+}
+.chat-msg { padding: 4px 8px; border-radius: 6px; word-break: break-word; }
+.chat-msg.system { color: var(--text-tertiary); font-style: italic; font-size: 12px; }
+.chat-msg.correct { background: #e8f5e9; color: var(--success); font-weight: 600; }
+.chat-msg.me { background: var(--accent-light); }
+.chat-input-row { display: flex; gap: 6px; }
+.chat-input-row input {
+  flex: 1; padding: 8px 10px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); font-size: 13px; font-family: inherit; outline: none;
+}
+.chat-input-row input:focus { border-color: var(--accent); }
+
+.scoreboard {
+  background: var(--card-bg); border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 10px;
+}
+.scoreboard h4 { font-size: 13px; margin-bottom: 6px; color: var(--text-secondary); }
+.score-row { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+
+.game-word-display {
+  text-align: center; padding: 8px; background: var(--card-bg);
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  font-weight: 700; font-size: 16px; letter-spacing: 2px;
+}
+
+@media (max-width: 700px) {
+  body { padding: 16px 8px; }
+  .header h1 { font-size: 22px; }
+  .form-row { flex-direction: column; }
+  .game-main { flex-direction: column; }
+  .game-sidebar { width: 100%; }
+  .game-chat { min-height: 120px; max-height: 200px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Animal decorations -->
+<div class="animal-paw p1">🐾</div>
+<div class="animal-paw p2">🐾</div>
+<div class="animal-paw p3">🐾</div>
+<div class="animal-bird">🐦</div>
+
+<div class="app">
+  <!-- Tab Navigation -->
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('todo')">📋 待办事项</button>
+    <button class="tab-btn" onclick="switchTab('game')">🎨 你画我猜</button>
+  </div>
+
+  <!-- ==================== TODO PANEL ==================== -->
+  <div class="tab-panel active" id="panel-todo">
+    <div class="header">
+      <h1>🐱 待办事项</h1>
+      <div class="header-actions">
+        <button class="btn btn-outline btn-sm" onclick="handleImport()">📥 导入</button>
+        <button class="btn btn-outline btn-sm" onclick="exportData()">💾 保存</button>
+        <button class="btn btn-primary" onclick="openAddModal()">+ 新建</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="搜索待办事项..." oninput="renderTodos()">
+      </div>
+      <select class="filter-select" id="statusFilter" onchange="renderTodos()">
+        <option value="all">全部</option>
+        <option value="active">进行中</option>
+        <option value="completed">已完成</option>
+        <option value="overdue">已逾期</option>
+      </select>
+      <select class="filter-select" id="priorityFilter" onchange="renderTodos()">
+        <option value="all">所有优先级</option>
+        <option value="high">高优先级</option>
+        <option value="medium">中优先级</option>
+        <option value="low">低优先级</option>
+      </select>
+    </div>
+
+    <div id="categoryBar" class="category-list"></div>
+
+    <div class="stats-bar">
+      <span id="statsText"></span>
+      <div class="batch-actions hidden" id="batchActions">
+        <button class="btn btn-outline btn-sm" onclick="batchMarkComplete()">✓ 批量完成</button>
+        <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑 批量删除</button>
+        <button class="select-all-btn" onclick="toggleSelectAll()">全选</button>
+      </div>
+    </div>
+
+    <div class="todo-list" id="todoList"></div>
+  </div>
+
+  <!-- ==================== GAME PANEL ==================== -->
+  <div class="tab-panel" id="panel-game">
+    <div id="gameLobby" class="game-lobby">
+      <h2>🎨 你画我猜</h2>
+      <div class="lobby-animals">🐶 🐱 🐰 🐼 🦊</div>
+      <p style="color:var(--text-secondary);margin-bottom:20px;">和朋友一起玩！一人画，其他人猜。</p>
+      <div class="form-group">
+        <label>你的昵称</label>
+        <input type="text" id="gameNickname" placeholder="输入昵称..." maxlength="12">
+      </div>
+      <div style="display:flex;gap:10px;max-width:360px;margin:0 auto;">
+        <button class="btn btn-primary btn-block" onclick="createRoom()">🏠 创建房间</button>
+        <button class="btn btn-outline btn-block" onclick="showJoinRoom()">🚪 加入房间</button>
+      </div>
+      <div id="joinRoomArea" style="display:none;margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto;">
+        <div class="form-group">
+          <label>房间号</label>
+          <input type="text" id="joinRoomCode" placeholder="输入房间号..." maxlength="12" style="text-transform:uppercase;">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="joinRoom()">加入</button>
+      </div>
+    </div>
+
+    <div id="gameRoom" style="display:none;">
+      <div class="game-room-info">
+        <div>
+          <span style="font-size:12px;color:var(--text-secondary);">房间号</span>
+          <span class="room-code" id="roomCodeDisplay"></span>
+          <button class="btn btn-outline btn-sm" onclick="copyRoomCode()" style="margin-left:6px;">复制</button>
+        </div>
+        <div class="player-list" id="playerList"></div>
+        <div>
+          <button class="btn btn-primary btn-sm" id="startGameBtn" onclick="startGame()" style="display:none;">开始游戏</button>
+          <button class="btn btn-outline btn-sm" id="leaveRoomBtn" onclick="leaveRoom()">离开</button>
+        </div>
+      </div>
+
+      <div id="gamePlayArea" style="display:none;">
+        <div class="game-word-display" id="wordDisplay" style="margin-bottom:10px;"></div>
+
+        <div class="game-main">
+          <div class="game-canvas-area">
+            <canvas id="drawCanvas" width="600" height="400"></canvas>
+            <div class="drawing-tools" id="drawingTools">
+              <button class="tool-btn active" data-tool="pen" title="画笔">✏️</button>
+              <button class="tool-btn" data-tool="eraser" title="橡皮">🧹</button>
+              <span class="tool-divider"></span>
+              <input type="color" id="penColor" value="#1d1d1f" title="颜色">
+              <input type="range" id="penSize" min="1" max="20" value="3" title="粗细">
+              <span class="tool-divider"></span>
+              <button class="tool-btn" onclick="clearCanvas()" title="清空">🗑</button>
+            </div>
+          </div>
+
+          <div class="game-sidebar">
+            <div class="scoreboard">
+              <h4>🏆 得分榜</h4>
+              <div id="scoreList"></div>
+            </div>
+            <div class="game-chat">
+              <div class="chat-messages" id="chatMessages"></div>
+              <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="输入猜测..." maxlength="50" onkeydown="if(event.key==='Enter')sendGuess()">
+                <button class="btn btn-primary btn-sm" onclick="sendGuess()">发送</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Todo Modal -->
+<div class="modal-overlay" id="todoModal" style="display:none;" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2 id="modalTitle">新建待办</h2>
+    <div class="form-group">
+      <label>标题</label>
+      <input type="text" id="todoTitle" placeholder="输入待办事项...">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>优先级</label>
+        <select id="todoPriority">
+          <option value="low">低</option>
+          <option value="medium" selected>中</option>
+          <option value="high">高</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>截止日期</label>
+        <input type="date" id="todoDueDate">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>提醒时间</label>
+        <input type="datetime-local" id="todoReminder">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>分类</label>
+      <input type="text" id="todoCategory" placeholder="输入或选择已有分类..." list="categoryDatalist">
+      <datalist id="categoryDatalist"></datalist>
+    </div>
+    <div class="form-group">
+      <label>标签（逗号分隔）</label>
+      <input type="text" id="todoTags" placeholder="例如: 工作, 重要, 紧急">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveTodo()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== TODO APP ====================
+const STORAGE_KEY = 'todo_app_data';
+let todos = [];
+let categories = [];
+let editingId = null;
+let selectedIds = new Set();
+
+function loadData() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    const data = JSON.parse(raw);
+    todos = data.todos || [];
+    categories = data.categories || [];
+  }
+}
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ todos, categories }));
+}
+
+loadData();
+
+// Export / Import
+function exportData() {
+  const blob = new Blob([JSON.stringify({ todos, categories }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'todo_backup_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('数据已导出 ✓');
+}
+
+function handleImport() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.todos && Array.isArray(data.todos)) {
+          todos = data.todos;
+          categories = data.categories || [];
+          updateCategories(); saveData(); renderTodos();
+          showToast('数据已导入 ✓ (共 ' + todos.length + ' 条)');
+        } else { showToast('无效的数据格式'); }
+      } catch { showToast('文件解析失败'); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// Categories
+function updateCategories() {
+  const set = new Set(categories);
+  todos.forEach(t => { if (t.category) set.add(t.category); });
+  categories = [...set].sort();
+}
+
+function renderCategoryBar() {
+  const el = document.getElementById('categoryBar');
+  if (categories.length === 0) { el.innerHTML = ''; return; }
+  const activeCat = document.getElementById('categoryFilter')?.dataset?.cat || 'all';
+  el.innerHTML = `<span class="category-chip${activeCat === 'all' ? ' active' : ''}"
+    onclick="filterByCategory('all')" style="font-weight:500;">全部</span>` +
+    categories.map(c => {
+      const count = todos.filter(t => t.category === c).length;
+      const isActive = activeCat === c;
+      return `<span class="category-chip${isActive ? ' active' : ''}"
+        onclick="filterByCategory('${escapeHtml(c)}')">
+        ${escapeHtml(c)}<span class="chip-count">${count}</span></span>`;
+    }).join('');
+}
+
+function filterByCategory(cat) {
+  const el = document.getElementById('categoryFilter');
+  if (!el) {
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.id = 'categoryFilter'; hidden.dataset.cat = cat;
+    document.body.appendChild(hidden);
+  } else { el.dataset.cat = cat; }
+  renderTodos();
+}
+
+// Rendering
+function getFilteredTodos() {
+  const search = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+  const priorityFilter = document.getElementById('priorityFilter')?.value || 'all';
+  const categoryFilter = document.getElementById('categoryFilter')?.dataset?.cat || 'all';
+  const today = new Date().toISOString().slice(0,10);
+
+  let filtered = [...todos];
+  if (search) {
+    filtered = filtered.filter(t =>
+      t.title.toLowerCase().includes(search) ||
+      (t.tags || []).some(tag => tag.toLowerCase().includes(search)) ||
+      (t.category || '').toLowerCase().includes(search)
+    );
+  }
+  if (statusFilter === 'active') filtered = filtered.filter(t => !t.completed);
+  else if (statusFilter === 'completed') filtered = filtered.filter(t => t.completed);
+  else if (statusFilter === 'overdue') filtered = filtered.filter(t => !t.completed && t.dueDate && t.dueDate < today);
+  if (priorityFilter !== 'all') filtered = filtered.filter(t => t.priority === priorityFilter);
+  if (categoryFilter !== 'all') filtered = filtered.filter(t => t.category === categoryFilter);
+  filtered.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return filtered;
+}
+
+function renderTodos() {
+  const list = document.getElementById('todoList');
+  const filtered = getFilteredTodos();
+  renderCategoryBar();
+  updateStats(filtered);
+  updateCategoryDatalist();
+
+  if (filtered.length === 0) {
+    const search = document.getElementById('searchInput')?.value || '';
+    list.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">${search ? '🔍' : '🐣'}</div>
+      <p>${search ? '没有匹配的待办事项' : '还没有待办事项，点击「新建」开始吧~'}</p>
+    </div>`;
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0,10);
+
+  list.innerHTML = filtered.map((t, i) => {
+    const completedClass = t.completed ? ' completed' : '';
+    const overdueClass = !t.completed && t.dueDate && t.dueDate < today ? ' overdue' : '';
+
+    let dueHtml = '';
+    if (t.dueDate) {
+      let dueClass = 'normal', dueLabel = t.dueDate;
+      if (t.dueDate === today) { dueClass = 'today'; dueLabel = '今天到期'; }
+      else if (t.dueDate < today && !t.completed) { dueClass = 'overdue'; dueLabel = '已逾期 ' + t.dueDate; }
+      else if (t.dueDate < today && t.completed) { dueLabel = t.dueDate; }
+      dueHtml = `<span class="due-date ${dueClass}">📅 ${dueLabel}</span>`;
+    }
+
+    let reminderHtml = '';
+    if (t.reminder) {
+      const rmDate = new Date(t.reminder);
+      reminderHtml = `<span class="reminder-tag">⏰ ${rmDate.toLocaleString('zh-CN', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>`;
+    }
+
+    let priorityHtml = '';
+    if (t.priority && t.priority !== 'low') {
+      const label = t.priority === 'high' ? '高' : '中';
+      priorityHtml = `<span class="tag tag-priority-${t.priority}">${label}</span>`;
+    }
+
+    let categoryHtml = '';
+    if (t.category) categoryHtml = `<span class="tag tag-category">${escapeHtml(t.category)}</span>`;
+
+    let tagsHtml = (t.tags || []).map(tag =>
+      `<span class="tag tag-category">${escapeHtml(tag)}</span>`
+    ).join('');
+
+    const isSelected = selectedIds.has(t.id);
+    const selectHtml = `<div class="select-check${isSelected ? ' selected' : ''}" onclick="event.stopPropagation();toggleSelect('${t.id}')"></div>`;
+
+    return `<div class="todo-item${completedClass}${overdueClass}" draggable="true"
+      data-id="${t.id}" data-index="${i}"
+      ondragstart="handleDragStart(event)" ondragover="handleDragOver(event)"
+      ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" ondragend="handleDragEnd(event)">
+      <span class="drag-handle" onmousedown="event.stopPropagation()">⋮⋮</span>
+      ${selectHtml}
+      <div class="checkbox${t.completed ? ' checked' : ''}" onclick="toggleComplete('${t.id}')"></div>
+      <div class="todo-content" ondblclick="openEditModal('${t.id}')">
+        <span class="todo-title">${escapeHtml(t.title)}</span>
+        <div class="todo-meta">
+          ${dueHtml} ${reminderHtml} ${priorityHtml} ${categoryHtml} ${tagsHtml}
+        </div>
+      </div>
+      <div class="todo-actions">
+        <button class="btn-edit" onclick="openEditModal('${t.id}')" title="编辑">✎</button>
+        <button class="btn-delete" onclick="deleteTodo('${t.id}')" title="删除">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  updateBatchBar();
+}
+
+function updateStats(filtered) {
+  const total = todos.length;
+  const completed = todos.filter(t => t.completed).length;
+  const active = total - completed;
+  document.getElementById('statsText').textContent = `共 ${total} 项 · ${active} 进行中 · ${completed} 已完成`;
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batchActions');
+  bar.classList.toggle('hidden', selectedIds.size === 0);
+}
+
+function updateCategoryDatalist() {
+  const dl = document.getElementById('categoryDatalist');
+  dl.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('');
+}
+
+// Actions
+function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = '新建待办';
+  document.getElementById('todoTitle').value = '';
+  document.getElementById('todoPriority').value = 'medium';
+  document.getElementById('todoDueDate').value = '';
+  document.getElementById('todoReminder').value = '';
+  document.getElementById('todoCategory').value = '';
+  document.getElementById('todoTags').value = '';
+  document.getElementById('todoModal').style.display = 'flex';
+  document.getElementById('todoTitle').focus();
+}
+
+function openEditModal(id) {
+  const t = todos.find(x => x.id === id);
+  if (!t) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = '编辑待办';
+  document.getElementById('todoTitle').value = t.title;
+  document.getElementById('todoPriority').value = t.priority || 'medium';
+  document.getElementById('todoDueDate').value = t.dueDate || '';
+  document.getElementById('todoReminder').value = t.reminder ? t.reminder.slice(0,16) : '';
+  document.getElementById('todoCategory').value = t.category || '';
+  document.getElementById('todoTags').value = (t.tags || []).join(', ');
+  document.getElementById('todoModal').style.display = 'flex';
+  document.getElementById('todoTitle').focus();
+}
+
+function closeModal() {
+  document.getElementById('todoModal').style.display = 'none';
+  editingId = null;
+}
+
+function saveTodo() {
+  const title = document.getElementById('todoTitle').value.trim();
+  if (!title) { showToast('请输入标题'); return; }
+
+  const priority = document.getElementById('todoPriority').value;
+  const dueDate = document.getElementById('todoDueDate').value;
+  const reminder = document.getElementById('todoReminder').value;
+  const category = document.getElementById('todoCategory').value.trim();
+  const tagsStr = document.getElementById('todoTags').value.trim();
+  const tags = tagsStr ? tagsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  if (editingId) {
+    const t = todos.find(x => x.id === editingId);
+    if (t) {
+      t.title = title; t.priority = priority;
+      t.dueDate = dueDate || null; t.reminder = reminder || null;
+      t.category = category || null; t.tags = tags;
+    }
+  } else {
+    const maxOrder = todos.reduce((max, t) => Math.max(max, t.order ?? 0), 0);
+    todos.push({
+      id: generateId(), title, completed: false, priority,
+      dueDate: dueDate || null, reminder: reminder || null,
+      category: category || null, tags, order: maxOrder + 1,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  updateCategories(); saveData(); closeModal(); renderTodos();
+  showToast(editingId ? '已更新 ✓' : '已添加 ✓');
+  editingId = null;
+
+  // Request notification permission if reminder is set
+  if (reminder && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function toggleComplete(id) {
+  const t = todos.find(x => x.id === id);
+  if (t) { t.completed = !t.completed; saveData(); renderTodos(); }
+}
+
+function deleteTodo(id) {
+  if (!confirm('确定要删除这条待办吗？')) return;
+  todos = todos.filter(t => t.id !== id);
+  selectedIds.delete(id);
+  updateCategories(); saveData(); renderTodos();
+  showToast('已删除');
+}
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  renderTodos();
+}
+
+function toggleSelectAll() {
+  const filtered = getFilteredTodos();
+  if (selectedIds.size === filtered.length) selectedIds.clear();
+  else filtered.forEach(t => selectedIds.add(t.id));
+  renderTodos();
+}
+
+function batchMarkComplete() {
+  if (selectedIds.size === 0) return;
+  todos.forEach(t => { if (selectedIds.has(t.id)) t.completed = true; });
+  selectedIds.clear(); saveData(); renderTodos();
+  showToast('已批量完成 ✓');
+}
+
+function batchDelete() {
+  if (selectedIds.size === 0) return;
+  if (!confirm(`确定要删除选中的 ${selectedIds.size} 条待办吗？`)) return;
+  todos = todos.filter(t => !selectedIds.has(t.id));
+  selectedIds.clear(); updateCategories(); saveData(); renderTodos();
+  showToast('已批量删除');
+}
+
+// Drag & Drop
+let dragSrcIndex = null;
+
+function handleDragStart(e) {
+  dragSrcIndex = parseInt(e.target.dataset.index);
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.target.closest('.todo-item')?.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  e.target.closest('.todo-item')?.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.target.closest('.todo-item')?.classList.remove('drag-over');
+  const targetIndex = parseInt(e.target.closest('.todo-item')?.dataset.index);
+  if (dragSrcIndex === null || targetIndex === null || dragSrcIndex === targetIndex) return;
+
+  const filtered = getFilteredTodos();
+  const srcItem = filtered[dragSrcIndex];
+  const tgtItem = filtered[targetIndex];
+  if (!srcItem || !tgtItem) return;
+
+  const srcOrder = srcItem.order;
+  const tgtOrder = tgtItem.order;
+  if (dragSrcIndex < targetIndex) {
+    todos.forEach(t => { if (t.order > srcOrder && t.order <= tgtOrder) t.order--; });
+  } else {
+    todos.forEach(t => { if (t.order >= tgtOrder && t.order < srcOrder) t.order++; });
+  }
+  srcItem.order = tgtOrder;
+  saveData(); renderTodos();
+  dragSrcIndex = null;
+}
+
+function handleDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.todo-item').forEach(el => el.classList.remove('drag-over'));
+  dragSrcIndex = null;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openAddModal(); }
+  if (e.key === 'Escape') closeModal();
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); exportData(); showToast('已保存 ✓'); }
+});
+
+// Reminder checker
+function checkReminders() {
+  if (Notification.permission !== 'granted') return;
+  const now = new Date().toISOString().slice(0,16);
+  todos.forEach(t => {
+    if (t.reminder && !t.reminderNotified && t.reminder.slice(0,16) === now && !t.completed) {
+      new Notification('⏰ 待办提醒', {
+        body: t.title,
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">📋</text></svg>',
+        tag: t.id
+      });
+      t.reminderNotified = true;
+      saveData();
+    }
+  });
+}
+setInterval(checkReminders, 30000);
+checkReminders();
+
+// Tab switching
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+// Helpers
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function showToast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2000);
+}
+
+// Init
+updateCategories();
+renderTodos();
+
+// ==================== GAME: 你画我猜 ====================
+const WORD_LIST = [
+  '小猫', '小狗', '兔子', '大象', '长颈鹿', '熊猫', '企鹅', '鲨鱼', '蝴蝶', '蜗牛',
+  '苹果', '香蕉', '西瓜', '草莓', ' pizza ', '蛋糕', '冰淇淋', '汉堡', '寿司',
+  '太阳', '月亮', '星星', '彩虹', '闪电', '雪花', '房子', '树木', '花朵',
+  '汽车', '飞机', '自行车', '火箭', '轮船', '火车', '手机', '电脑', '眼镜', '雨伞',
+  '足球', '篮球', '游泳', '跑步', '跳舞', '唱歌', '睡觉', '吃饭', '看书',
+  '机器人', '恐龙', '龙', '公主', '超人', '海盗', '忍者', '国王', '美人鱼', '天使',
+  '微笑', '哭泣', '生气', '爱心', '礼物', '气球', '蜡烛', '钥匙', '锁', '时钟'
+];
+
+let peer = null;
+let connections = {};
+let myPeerId = null;
+let roomId = null;
+let playerName = '';
+let players = {}; // {peerId: {name, score, isDrawer}}
+let myTurn = false;
+let currentWord = '';
+let gameActive = false;
+let roundTimer = null;
+let roundTimeLeft = 0;
+
+let drawColor = '#1d1d1f';
+let drawSize = 3;
+let drawTool = 'pen';
+let isDrawing = false;
+let lastX = 0, lastY = 0;
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+
+// Canvas setup
+function initCanvas() {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', doDraw);
+  canvas.addEventListener('mouseup', stopDraw);
+  canvas.addEventListener('mouseleave', stopDraw);
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touches[0]; startDrawTouch(t); });
+  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; doDrawTouch(t); });
+  canvas.addEventListener('touchend', stopDraw);
+}
+
+function getCanvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+}
+
+function startDraw(e) {
+  if (!myTurn) return;
+  isDrawing = true;
+  const pos = getCanvasPos(e);
+  lastX = pos.x; lastY = pos.y;
+  sendDrawData({ type: 'start', x: lastX, y: lastY, color: drawColor, size: drawSize, tool: drawTool });
+}
+
+function doDraw(e) {
+  if (!isDrawing || !myTurn) return;
+  const pos = getCanvasPos(e);
+  drawLine(lastX, lastY, pos.x, pos.y);
+  sendDrawData({ type: 'move', x: pos.x, y: pos.y });
+  lastX = pos.x; lastY = pos.y;
+}
+
+function startDrawTouch(t) {
+  if (!myTurn) return;
+  isDrawing = true;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  lastX = (t.clientX - rect.left) * scaleX;
+  lastY = (t.clientY - rect.top) * scaleY;
+  sendDrawData({ type: 'start', x: lastX, y: lastY, color: drawColor, size: drawSize, tool: drawTool });
+}
+
+function doDrawTouch(t) {
+  if (!isDrawing || !myTurn) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (t.clientX - rect.left) * scaleX;
+  const y = (t.clientY - rect.top) * scaleY;
+  drawLine(lastX, lastY, x, y);
+  sendDrawData({ type: 'move', x, y });
+  lastX = x; lastY = y;
+}
+
+function stopDraw() {
+  if (!isDrawing) return;
+  isDrawing = false;
+  sendDrawData({ type: 'end' });
+}
+
+function drawLine(x1, y1, x2, y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = drawTool === 'eraser' ? '#ffffff' : drawColor;
+  ctx.lineWidth = drawTool === 'eraser' ? drawSize * 3 : drawSize;
+  ctx.stroke();
+}
+
+function clearCanvas(send = true) {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (send && myTurn) sendDrawData({ type: 'clear' });
+}
+
+// Drawing tools UI
+document.getElementById('penColor').addEventListener('input', (e) => { drawColor = e.target.value; });
+document.getElementById('penSize').addEventListener('input', (e) => { drawSize = parseInt(e.target.value); });
+document.querySelectorAll('#drawingTools .tool-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#drawingTools .tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    drawTool = btn.dataset.tool;
+  });
+});
+
+// PeerJS
+function initPeer() {
+  if (peer) peer.destroy();
+  peer = new Peer(undefined, { debug: 0 });
+
+  peer.on('open', (id) => {
+    myPeerId = id;
+  });
+
+  peer.on('connection', (conn) => {
+    setupConnection(conn);
+  });
+
+  peer.on('error', (err) => {
+    console.error('Peer error:', err);
+    showToast('连接出错: ' + err.message);
+  });
+}
+
+function setupConnection(conn) {
+  connections[conn.peer] = conn;
+
+  conn.on('open', () => {
+    conn.send({ type: 'join_info', name: playerName, peerId: myPeerId });
+    broadcastPlayerList();
+  });
+
+  conn.on('data', (data) => {
+    handleGameData(data, conn.peer);
+  });
+
+  conn.on('close', () => {
+    delete connections[conn.peer];
+    delete players[conn.peer];
+    broadcastPlayerList();
+    updateGameUI();
+  });
+}
+
+function broadcast(data) {
+  Object.values(connections).forEach(conn => {
+    if (conn.open) conn.send(data);
+  });
+}
+
+function handleGameData(data, fromPeerId) {
+  switch (data.type) {
+    case 'join_info':
+      players[data.peerId] = { name: data.name, score: 0, isDrawer: false };
+      broadcastPlayerList();
+      // Send existing players to new player
+      if (Object.keys(players).length > 1) {
+        const conn = connections[fromPeerId];
+        if (conn && conn.open) {
+          conn.send({ type: 'player_list', players });
+          if (gameActive) {
+            conn.send({ type: 'game_state', word: currentWord, players, roundTimeLeft });
+          }
+        }
+      }
+      break;
+
+    case 'player_list':
+      players = data.players;
+      updateGameUI();
+      break;
+
+    case 'start_game':
+      gameActive = true;
+      document.getElementById('gamePlayArea').style.display = 'block';
+      document.getElementById('startGameBtn').style.display = 'none';
+      addChatMessage('system', '游戏开始！');
+      break;
+
+    case 'new_round':
+      currentWord = data.word;
+      players = data.players;
+      myTurn = data.drawerPeerId === myPeerId;
+      roundTimeLeft = data.roundTime;
+      document.getElementById('wordDisplay').textContent = myTurn ? '🎨 你的词: ' + currentWord : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
+      clearCanvas();
+      updateGameUI();
+      startRoundTimer(data.roundTime);
+      if (myTurn) {
+        addChatMessage('system', '轮到你画画了！词语: ' + currentWord);
+      } else {
+        addChatMessage('system', data.drawerName + ' 正在画画，快来猜！');
+      }
+      break;
+
+    case 'round_end':
+      gameActive = true;
+      players = data.players;
+      clearCanvas();
+      updateGameUI();
+      if (data.word) addChatMessage('system', '答案揭晓: ' + data.word);
+      if (roundTimer) clearInterval(roundTimer);
+      break;
+
+    case 'draw':
+      handleRemoteDraw(data);
+      break;
+
+    case 'guess':
+      if (data.correct) {
+        addChatMessage('correct', data.name + ' 猜对了！🎉');
+        players[data.peerId].score = data.score;
+        updateGameUI();
+      } else {
+        addChatMessage('normal', data.name + ': ' + data.text);
+      }
+      break;
+
+    case 'game_over':
+      gameActive = false;
+      if (roundTimer) clearInterval(roundTimer);
+      document.getElementById('startGameBtn').style.display = 'block';
+      document.getElementById('gamePlayArea').style.display = 'none';
+      const scores = Object.values(data.players).sort((a,b) => b.score - a.score);
+      addChatMessage('system', '🏆 游戏结束！');
+      addChatMessage('system', '第一名: ' + (scores[0]?.name || '') + ' (' + (scores[0]?.score || 0) + '分)');
+      break;
+
+    case 'chat':
+      addChatMessage('normal', data.name + ': ' + data.text);
+      break;
+  }
+}
+
+function handleRemoteDraw(data) {
+  switch (data.type) {
+    case 'start':
+      drawColor = data.color; drawSize = data.size; drawTool = data.tool;
+      lastX = data.x; lastY = data.y;
+      ctx.beginPath();
+      ctx.moveTo(data.x, data.y);
+      ctx.strokeStyle = data.tool === 'eraser' ? '#ffffff' : data.color;
+      ctx.lineWidth = data.tool === 'eraser' ? data.size * 3 : data.size;
+      break;
+    case 'move':
+      drawLine(lastX, lastY, data.x, data.y);
+      lastX = data.x; lastY = data.y;
+      break;
+    case 'end':
+      break;
+    case 'clear':
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      break;
+  }
+}
+
+function sendDrawData(data) {
+  broadcast({ type: 'draw', ...data });
+}
+
+function startRoundTimer(seconds) {
+  if (roundTimer) clearInterval(roundTimer);
+  roundTimeLeft = seconds;
+  roundTimer = setInterval(() => {
+    roundTimeLeft--;
+    if (roundTimeLeft <= 0) {
+      clearInterval(roundTimer);
+      if (isHost()) endRound();
+    }
+  }, 1000);
+}
+
+function isHost() {
+  return roomId && myPeerId && players[myPeerId] && Object.keys(players).length > 0;
+}
+
+function broadcastPlayerList() {
+  broadcast({ type: 'player_list', players });
+}
+
+// Room management
+function createRoom() {
+  playerName = document.getElementById('gameNickname').value.trim();
+  if (!playerName) { showToast('请输入昵称'); return; }
+
+  if (!peer) initPeer();
+
+  const checkPeer = setInterval(() => {
+    if (myPeerId) {
+      clearInterval(checkPeer);
+      roomId = myPeerId;
+      players[myPeerId] = { name: playerName, score: 0, isDrawer: false };
+      document.getElementById('roomCodeDisplay').textContent = roomId;
+      document.getElementById('gameLobby').style.display = 'none';
+      document.getElementById('gameRoom').style.display = 'block';
+      document.getElementById('startGameBtn').style.display = 'block';
+      updateGameUI();
+      addChatMessage('system', '房间已创建！把房间号发给朋友即可加入');
+    }
+  }, 200);
+}
+
+function showJoinRoom() {
+  document.getElementById('joinRoomArea').style.display = 'block';
+}
+
+function joinRoom() {
+  playerName = document.getElementById('gameNickname').value.trim();
+  const code = document.getElementById('joinRoomCode').value.trim();
+  if (!playerName) { showToast('请输入昵称'); return; }
+  if (!code) { showToast('请输入房间号'); return; }
+
+  if (!peer) initPeer();
+
+  const checkPeer = setInterval(() => {
+    if (myPeerId) {
+      clearInterval(checkPeer);
+      roomId = code;
+      document.getElementById('roomCodeDisplay').textContent = roomId.slice(0, 12) + '...';
+      document.getElementById('gameLobby').style.display = 'none';
+      document.getElementById('gameRoom').style.display = 'block';
+      document.getElementById('startGameBtn').style.display = 'none';
+      addChatMessage('system', '正在连接房间...');
+
+      // Connect directly to host using their peer ID as room code
+      const conn = peer.connect(code, { reliable: true });
+      setupConnection(conn);
+    }
+  }, 200);
+}
+
+function leaveRoom() {
+  if (gameActive && isHost()) {
+    broadcast({ type: 'game_over', players });
+  }
+  broadcast({ type: 'player_leave', peerId: myPeerId });
+  Object.values(connections).forEach(c => c.close());
+  connections = {};
+  players = {};
+  gameActive = false;
+  myTurn = false;
+  if (roundTimer) clearInterval(roundTimer);
+  document.getElementById('gameLobby').style.display = 'block';
+  document.getElementById('gameRoom').style.display = 'none';
+  document.getElementById('gamePlayArea').style.display = 'none';
+  document.getElementById('chatMessages').innerHTML = '';
+}
+
+function copyRoomCode() {
+  navigator.clipboard.writeText(roomId).then(() => showToast('房间号已复制 ✓'));
+}
+
+// Game flow
+function startGame() {
+  if (Object.keys(players).length < 2) {
+    showToast('至少需要2名玩家');
+    return;
+  }
+  broadcast({ type: 'start_game' });
+  gameActive = true;
+  document.getElementById('gamePlayArea').style.display = 'block';
+  document.getElementById('startGameBtn').style.display = 'none';
+  addChatMessage('system', '游戏开始！');
+  newRound();
+}
+
+function newRound() {
+  const playerIds = Object.keys(players);
+  // Pick a drawer (round-robin style based on current drawer)
+  const currentDrawer = playerIds.find(pid => players[pid].isDrawer);
+  const currentIdx = currentDrawer ? playerIds.indexOf(currentDrawer) : -1;
+  const nextIdx = (currentIdx + 1) % playerIds.length;
+  const drawerPeerId = playerIds[nextIdx];
+
+  // Reset all drawer flags
+  playerIds.forEach(pid => { players[pid].isDrawer = false; });
+  players[drawerPeerId].isDrawer = true;
+
+  currentWord = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+  const roundTime = 80;
+
+  broadcast({
+    type: 'new_round',
+    word: currentWord,
+    players,
+    drawerPeerId,
+    drawerName: players[drawerPeerId].name,
+    roundTime
+  });
+
+  myTurn = drawerPeerId === myPeerId;
+  document.getElementById('wordDisplay').textContent = myTurn ? '🎨 你的词: ' + currentWord : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
+  clearCanvas();
+  updateGameUI();
+  startRoundTimer(roundTime);
+
+  if (myTurn) {
+    addChatMessage('system', '轮到你画画了！词语: ' + currentWord);
+  } else {
+    addChatMessage('system', players[drawerPeerId].name + ' 正在画画，快来猜！');
+  }
+}
+
+function endRound() {
+  if (roundTimer) clearInterval(roundTimer);
+  const drawerId = Object.keys(players).find(pid => players[pid].isDrawer);
+  broadcast({ type: 'round_end', word: currentWord, players });
+  addChatMessage('system', '答案揭晓: ' + currentWord);
+  clearCanvas();
+  myTurn = false;
+  document.getElementById('wordDisplay').textContent = '答案: ' + currentWord;
+
+  // Start new round after delay
+  setTimeout(() => {
+    if (gameActive) newRound();
+  }, 3000);
+}
+
+function sendGuess() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || myTurn) return;
+  input.value = '';
+
+  if (!gameActive) {
+    // Just chat
+    broadcast({ type: 'chat', name: playerName, text });
+    addChatMessage('me', '你: ' + text);
+    return;
+  }
+
+  const drawerId = Object.keys(players).find(pid => players[pid].isDrawer);
+  const correct = text === currentWord;
+
+  if (correct) {
+    players[myPeerId].score = (players[myPeerId].score || 0) + 10 + Math.max(0, roundTimeLeft);
+    if (drawerId && players[drawerId]) {
+      players[drawerId].score = (players[drawerId].score || 0) + 5;
+    }
+    broadcast({
+      type: 'guess',
+      name: playerName,
+      peerId: myPeerId,
+      text,
+      correct: true,
+      score: players[myPeerId].score,
+      drawerScore: drawerId ? players[drawerId].score : 0,
+      players
+    });
+    addChatMessage('correct', '🎉 你猜对了！+分');
+    updateGameUI();
+
+    // Check if all non-drawers guessed
+    const allGuessed = Object.keys(players).every(pid => {
+      if (pid === drawerId) return true;
+      // We can't track who guessed without more state; just end round after first correct guess for simplicity
+      return false;
+    });
+    // End round when someone guesses correctly
+    setTimeout(() => endRound(), 1000);
+  } else {
+    broadcast({ type: 'guess', name: playerName, peerId: myPeerId, text, correct: false });
+    addChatMessage('normal', '你: ' + text + (text.includes(currentWord.charAt(0)) && text.length === currentWord.length ? ' (很接近！)' : ''));
+  }
+}
+
+function addChatMessage(cls, text) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + cls;
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function updateGameUI() {
+  // Player list
+  const pl = document.getElementById('playerList');
+  pl.innerHTML = Object.entries(players).map(([pid, p]) => {
+    let cls = 'player-badge';
+    if (p.isDrawer) cls += ' is-drawer';
+    if (pid === myPeerId) cls += ' me';
+    const icon = p.isDrawer ? '🎨 ' : '';
+    const me = pid === myPeerId ? ' (我)' : '';
+    return `<span class="${cls}">${icon}${escapeHtml(p.name)}${me}</span>`;
+  }).join('');
+
+  // Score list
+  const sl = document.getElementById('scoreList');
+  const sorted = Object.values(players).sort((a, b) => b.score - a.score);
+  sl.innerHTML = sorted.map((p, i) => {
+    const medals = ['🥇', '🥈', '🥉'];
+    return `<div class="score-row">${(medals[i] || '')} ${escapeHtml(p.name)} <span>${p.score}分</span></div>`;
+  }).join('');
+
+  // Canvas indication
+  canvas.style.opacity = myTurn ? '1' : '0.85';
+  canvas.style.cursor = myTurn ? 'crosshair' : 'default';
+}
+
+// Init canvas and peer on load
+initCanvas();
+initPeer();
+</script>
+</body>
+</html>
