@@ -421,15 +421,27 @@ body {
           <button class="btn btn-outline btn-sm" onclick="copyShareLink()" style="margin-left:8px;" title="复制分享链接">🔗 分享</button>
         </div>
         <div class="player-list" id="playerList"></div>
-        <div>
-          <button class="btn btn-outline btn-sm" onclick="reconnectRoom()" title="重新连接">🔄 刷新连接</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text-secondary);">总局数:</span>
+          <select id="totalRoundsSelect" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px;font-family:inherit;">
+            <option value="3">3局</option>
+            <option value="5" selected>5局</option>
+            <option value="8">8局</option>
+            <option value="10">10局</option>
+            <option value="0">无限</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="reconnectRoom()" title="重新连接">🔄</button>
           <button class="btn btn-primary btn-sm" id="startGameBtn" onclick="startGame()" style="display:none;">开始游戏</button>
           <button class="btn btn-outline btn-sm" id="leaveRoomBtn" onclick="leaveRoom()">离开</button>
         </div>
       </div>
 
       <div id="gamePlayArea" style="display:none;">
-        <div class="game-word-display" id="wordDisplay" style="margin-bottom:10px;"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+          <div class="game-word-display" id="wordDisplay" style="flex:1;min-width:200px;"></div>
+          <div id="timerDisplay" style="font-size:24px;font-weight:700;color:var(--accent);min-width:50px;text-align:center;font-variant-numeric:tabular-nums;">⏱ 80</div>
+          <div id="roundDisplay" style="font-size:13px;color:var(--text-secondary);white-space:nowrap;"></div>
+        </div>
 
         <div class="game-main">
           <div class="game-canvas-area">
@@ -958,7 +970,10 @@ let currentWord = '';
 let gameActive = false;
 let roundTimer = null;
 let roundTimeLeft = 0;
+let roundEnded = false;
 let guessedPeers = new Set();
+let totalRounds = 5;
+let currentRound = 0;
 
 let drawColor = '#1d1d1f';
 let drawSize = 3;
@@ -1209,9 +1224,13 @@ function handleGameData(data, fromPeerId) {
 
     case 'start_game':
       gameActive = true;
+      totalRounds = data.totalRounds || 0;
+      currentRound = 0;
+      roundEnded = false;
       guessedPeers.clear();
       document.getElementById('gamePlayArea').style.display = 'block';
       document.getElementById('startGameBtn').style.display = 'none';
+      document.getElementById('roundDisplay').textContent = '';
       addChatMessage('system', '🎮 游戏开始！');
       break;
 
@@ -1220,26 +1239,35 @@ function handleGameData(data, fromPeerId) {
       players = data.players;
       myTurn = data.drawerPeerId === myPeerId;
       roundTimeLeft = data.roundTime;
+      currentRound = data.currentRound || 0;
+      totalRounds = data.totalRounds || 0;
+      roundEnded = false;
       guessedPeers.clear();
       document.getElementById('wordDisplay').textContent = myTurn
         ? '🎨 你的词: ' + currentWord
         : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
+      document.getElementById('roundDisplay').textContent = totalRounds > 0
+        ? '第 ' + (currentRound + 1) + '/' + totalRounds + ' 局'
+        : '第 ' + (currentRound + 1) + ' 局';
       clearCanvas();
       updateGameUI();
       startRoundTimer(data.roundTime);
       if (myTurn) {
-        addChatMessage('system', '轮到你画画了！词语: ' + currentWord);
+        addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + currentWord);
       } else {
-        addChatMessage('system', data.drawerName + ' 正在画画，快来猜！');
+        addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | ' + data.drawerName + ' 正在画画，快来猜！');
       }
       break;
 
     case 'round_end':
+      roundEnded = true;
+      currentRound = data.currentRound || (currentRound + 1);
       players = data.players;
       clearCanvas();
       updateGameUI();
       if (data.word) addChatMessage('system', '答案揭晓: ' + data.word);
       if (roundTimer) { clearInterval(roundTimer); roundTimer = null; }
+      document.getElementById('timerDisplay').textContent = '⏱ --';
       break;
 
     case 'draw':
@@ -1311,14 +1339,30 @@ function sendDrawData(data) {
 function startRoundTimer(seconds) {
   if (roundTimer) clearInterval(roundTimer);
   roundTimeLeft = seconds;
+  roundEnded = false;
+  updateTimerDisplay();
   roundTimer = setInterval(() => {
     roundTimeLeft--;
+    updateTimerDisplay();
     if (roundTimeLeft <= 0) {
       clearInterval(roundTimer);
       roundTimer = null;
-      if (isRoomHost) endRound();
+      if (isRoomHost && !roundEnded) endRound();
     }
   }, 1000);
+}
+
+function updateTimerDisplay() {
+  const el = document.getElementById('timerDisplay');
+  if (!el) return;
+  el.textContent = '⏱ ' + Math.max(0, roundTimeLeft);
+  if (roundTimeLeft <= 10) {
+    el.style.color = 'var(--danger)';
+  } else if (roundTimeLeft <= 20) {
+    el.style.color = 'var(--warning)';
+  } else {
+    el.style.color = 'var(--accent)';
+  }
 }
 
 function broadcastPlayerList() {
@@ -1336,6 +1380,8 @@ function resetToLobby() {
   isRoomHost = false;
   gameActive = false;
   myTurn = false;
+  roundEnded = false;
+  currentRound = 0;
   guessedPeers.clear();
   if (roundTimer) { clearInterval(roundTimer); roundTimer = null; }
   document.getElementById('gameLobby').style.display = 'block';
@@ -1343,6 +1389,8 @@ function resetToLobby() {
   document.getElementById('gamePlayArea').style.display = 'none';
   document.getElementById('chatMessages').innerHTML = '';
   document.getElementById('startGameBtn').style.display = 'none';
+  document.getElementById('timerDisplay').textContent = '⏱ 80';
+  document.getElementById('timerDisplay').style.color = 'var(--accent)';
   window.location.hash = '';
 }
 
@@ -1500,19 +1548,27 @@ function startGame() {
   if (Object.keys(players).length < 2) {
     showToast('至少需要2名玩家'); return;
   }
-  // Reset all scores
+  // Read total rounds setting
+  totalRounds = parseInt(document.getElementById('totalRoundsSelect').value);
+  currentRound = 0;
+  roundEnded = false;
+  // Reset all scores and drawer flags
   Object.values(players).forEach(p => { p.score = 0; p.isDrawer = false; });
   guessedPeers.clear();
-  broadcast({ type: 'start_game' });
+  broadcast({ type: 'start_game', totalRounds });
   gameActive = true;
   document.getElementById('gamePlayArea').style.display = 'block';
   document.getElementById('startGameBtn').style.display = 'none';
-  addChatMessage('system', '🎮 游戏开始！共 ' + Object.keys(players).length + ' 名玩家');
+  document.getElementById('roundDisplay').textContent = '';
+  const roundLabel = totalRounds > 0 ? '共 ' + totalRounds + ' 局' : '无限局';
+  addChatMessage('system', '🎮 游戏开始！' + Object.keys(players).length + ' 名玩家 · ' + roundLabel);
   newRound();
 }
 
 function newRound() {
+  roundEnded = false;
   const playerIds = Object.keys(players);
+  // Round-robin: next drawer is the player after the current drawer
   const currentDrawer = playerIds.find(pid => players[pid].isDrawer);
   const currentIdx = currentDrawer ? playerIds.indexOf(currentDrawer) : -1;
   const nextIdx = (currentIdx + 1) % playerIds.length;
@@ -1527,35 +1583,60 @@ function newRound() {
 
   broadcast({
     type: 'new_round', word: currentWord, players,
-    drawerPeerId, drawerName: players[drawerPeerId].name, roundTime
+    drawerPeerId, drawerName: players[drawerPeerId].name,
+    roundTime, currentRound, totalRounds
   });
 
   myTurn = drawerPeerId === myPeerId;
   document.getElementById('wordDisplay').textContent = myTurn
     ? '🎨 你的词: ' + currentWord
     : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
+  document.getElementById('roundDisplay').textContent = totalRounds > 0
+    ? '第 ' + (currentRound + 1) + '/' + totalRounds + ' 局'
+    : '第 ' + (currentRound + 1) + ' 局';
   clearCanvas();
   updateGameUI();
   startRoundTimer(roundTime);
 
   if (myTurn) {
-    addChatMessage('system', '轮到你画画了！词语: ' + currentWord);
+    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + currentWord);
   } else {
-    addChatMessage('system', players[drawerPeerId].name + ' 正在画画，快来猜！');
+    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | ' + players[drawerPeerId].name + ' 正在画画，快来猜！');
   }
 }
 
 function endRound() {
+  if (roundEnded) return;
+  roundEnded = true;
   if (roundTimer) { clearInterval(roundTimer); roundTimer = null; }
-  broadcast({ type: 'round_end', word: currentWord, players });
+
+  currentRound++;
+  broadcast({ type: 'round_end', word: currentWord, players, currentRound, totalRounds });
   addChatMessage('system', '答案揭晓: ' + currentWord);
+  addChatMessage('system', '第 ' + currentRound + ' 局结束');
   clearCanvas();
   myTurn = false;
   document.getElementById('wordDisplay').textContent = '答案: ' + currentWord;
+  document.getElementById('timerDisplay').textContent = '⏱ --';
+  document.getElementById('timerDisplay').style.color = 'var(--text-tertiary)';
 
-  setTimeout(() => {
-    if (gameActive && isRoomHost) newRound();
-  }, 3500);
+  // Check if game should end
+  if (totalRounds > 0 && currentRound >= totalRounds) {
+    setTimeout(() => {
+      gameActive = false;
+      broadcast({ type: 'game_over', players });
+      addChatMessage('system', '🏆 游戏结束！全部 ' + totalRounds + ' 局已完成');
+      const scores = Object.values(players).sort((a, b) => b.score - a.score);
+      if (scores[0]) addChatMessage('system', '🥇 第一名: ' + scores[0].name + ' (' + scores[0].score + '分)');
+      document.getElementById('startGameBtn').style.display = isRoomHost ? 'block' : 'none';
+      document.getElementById('gamePlayArea').style.display = 'none';
+      updateGameUI();
+    }, 3500);
+  } else {
+    setTimeout(() => {
+      if (gameActive && isRoomHost && roundEnded) newRound();
+    }, 3500);
+  }
 }
 
 function sendGuess() {
