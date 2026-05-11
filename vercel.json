@@ -1,4 +1,7 @@
 {
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "installCommand": "",
   "functions": {
     "api/**/*.js": {
       "maxDuration": 10
