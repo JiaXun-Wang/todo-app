@@ -638,7 +638,24 @@ body {
     <div class="form-group">
       <label>标签（逗号分隔）</label>
       <input type="text" id="todoTags" placeholder="例如: 工作, 重要, 紧急">
+	    </div>
+	    <div class="form-group">
+	      <label>重复</label>
+	      <select id="todoRepeat">
+	        <option value="">不重复</option>
+	        <option value="daily">每天</option>
+	        <option value="weekly">每周</option>
+	        <option value="monthly">每月</option>
+	      </select>
+	    </div>
+	    <div class="form-group">
+	      <label>备注</label>
+	      <textarea id="todoNote" placeholder="添加备注..." rows="2" style="resize:vertical;"></textarea>
     </div>
+	    <div class="form-group" id="subtaskGroup" style="display:none;">
+	      <label>子任务</label>
+	      <div id="subtaskList"></div>
+	    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveTodo()">保存</button>
@@ -1100,6 +1117,67 @@ function clearBgImage() {
   document.getElementById('bgClearRow').style.display = 'none';
 }
 
+
+// ==================== CLOUD SYNC ====================
+let syncTimeout = null;
+function scheduleCloudSync() {
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(syncToCloud, 3000);
+}
+
+async function syncToCloud() {
+  if (!authToken) return;
+  try {
+    await apiCall('/api/sync', { todos, categories });
+    console.log('Cloud synced');
+  } catch(e) { console.error('Sync failed:', e); }
+}
+
+async function loadFromCloud() {
+  if (!authToken) return;
+  try {
+    const res = await apiCall('/api/sync');
+    if (res.todos) { todos = res.todos; categories = res.categories || []; }
+  } catch(e) { console.error('Load failed:', e); }
+}
+
+// ==================== SUBTASKS ====================
+function renderSubtasksInModal(subtasks) {
+  const el = document.getElementById('subtaskList');
+  if (!el) return;
+  let html = '<div style="font-size:12px;color:var(--text-secondary);margin:4px 0;">子任务:</div>';
+  (subtasks || []).forEach((st, i) => {
+    html += '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">' +
+      '<input type="checkbox" ' + (st.completed ? 'checked' : '') + ' style="width:14px;height:14px;cursor:pointer;" onchange="toggleSubtaskInModal(' + i + ', this.checked)">' +
+      '<span style="flex:1;font-size:13px;' + (st.completed ? 'text-decoration:line-through;color:var(--text-tertiary);' : '') + '">' + escapeHtml(st.title) + '</span>' +
+      '<button onclick="removeSubtaskInModal(' + i + ')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:14px;">x</button>' +
+      '</div>';
+  });
+  html += '<div style="display:flex;gap:6px;margin-top:6px;" id="subtaskInput">' +
+    '<input type="text" id="subtaskNewTitle" placeholder="添加子任务..." style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:var(--bg);" onkeydown="if(event.key===\'Enter\')addSubtaskInModal()">' +
+    '<button class="btn btn-primary btn-sm" onclick="addSubtaskInModal()">+</button>' +
+    '</div>';
+  el.innerHTML = html;
+}
+
+let modalSubtasks = [];
+function addSubtaskInModal() {
+  const input = document.getElementById('subtaskNewTitle');
+  const title = input.value.trim();
+  if (!title) return;
+  modalSubtasks.push({ id: generateId(), title, completed: false });
+  input.value = '';
+  renderSubtasksInModal(modalSubtasks);
+}
+function toggleSubtaskInModal(idx, checked) {
+  if (modalSubtasks[idx]) modalSubtasks[idx].completed = checked;
+  renderSubtasksInModal(modalSubtasks);
+}
+function removeSubtaskInModal(idx) {
+  modalSubtasks.splice(idx, 1);
+  renderSubtasksInModal(modalSubtasks);
+}
+
 // ==================== TODO APP ====================
 const STORAGE_KEY = 'todo_app_data';
 let todos = [];
@@ -1263,6 +1341,27 @@ function renderTodos() {
       `<span class="tag tag-category">${escapeHtml(tag)}</span>`
     ).join('');
 
+    // Repeat indicator
+    let repeatHtml = '';
+    if (t.repeat) {
+      const repeatLabels = { daily: '每天重复', weekly: '每周重复', monthly: '每月重复' };
+      repeatHtml = `<span class="tag tag-category" style="background:#e8f5e9;color:#4caf50;">🔄 ${repeatLabels[t.repeat] || t.repeat}</span>`;
+    }
+
+    // Note indicator
+    let noteHtml = '';
+    if (t.note) {
+      noteHtml = `<span class="tag tag-category" style="background:#fff3e0;color:var(--warning);" title="${escapeHtml(t.note)}">📝 备注</span>`;
+    }
+
+    // Subtask progress
+    let subtaskHtml = '';
+    if (t.subtasks && t.subtasks.length > 0) {
+      const done = t.subtasks.filter(s => s.completed).length;
+      const total = t.subtasks.length;
+      subtaskHtml = `<span class="tag tag-category" style="background:#e8f2ff;color:var(--accent);">📋 ${done}/${total}</span>`;
+    }
+
     const isSelected = selectedIds.has(t.id);
     const selectHtml = `<div class="select-check${isSelected ? ' selected' : ''}" onclick="event.stopPropagation();toggleSelect('${t.id}')"></div>`;
 
@@ -1276,7 +1375,7 @@ function renderTodos() {
       <div class="todo-content" ondblclick="openEditModal('${t.id}')">
         <span class="todo-title">${escapeHtml(t.title)}</span>
         <div class="todo-meta">
-          ${dueHtml} ${reminderHtml} ${priorityHtml} ${categoryHtml} ${tagsHtml}
+          ${dueHtml} ${reminderHtml} ${priorityHtml} ${categoryHtml} ${repeatHtml} ${subtaskHtml} ${noteHtml} ${tagsHtml}
         </div>
       </div>
       <div class="todo-actions">
@@ -1318,8 +1417,13 @@ function openAddModal() {
   document.getElementById('todoReminder').value = '';
   document.getElementById('todoCategory').value = '';
   document.getElementById('todoTags').value = '';
+  document.getElementById('todoRepeat').value = '';
+  document.getElementById('todoNote').value = '';
+  document.getElementById('subtaskInput').style.display = 'none';
+  document.getElementById('subtaskList').innerHTML = '';
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
+}
 }
 
 function openEditModal(id) {
@@ -1333,8 +1437,13 @@ function openEditModal(id) {
   document.getElementById('todoReminder').value = t.reminder ? t.reminder.slice(0,16) : '';
   document.getElementById('todoCategory').value = t.category || '';
   document.getElementById('todoTags').value = (t.tags || []).join(', ');
+  document.getElementById('todoRepeat').value = t.repeat || '';
+  document.getElementById('todoNote').value = t.note || '';
+  renderSubtasksInModal(t.subtasks || []);
+  document.getElementById('subtaskInput').style.display = 'block';
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
+}
 }
 
 function closeModal() {
@@ -1352,6 +1461,8 @@ function saveTodo() {
   const category = document.getElementById('todoCategory').value.trim();
   const tagsStr = document.getElementById('todoTags').value.trim();
   const tags = tagsStr ? tagsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const repeat = document.getElementById('todoRepeat').value;
+  const note = document.getElementById('todoNote').value.trim();
 
   if (editingId) {
     const t = todos.find(x => x.id === editingId);
@@ -1359,6 +1470,7 @@ function saveTodo() {
       t.title = title; t.priority = priority;
       t.dueDate = dueDate || null; t.reminder = reminder || null;
       t.category = category || null; t.tags = tags;
+      t.repeat = repeat || null; t.note = note || null;
     }
   } else {
     const maxOrder = todos.reduce((max, t) => Math.max(max, t.order ?? 0), 0);
@@ -1366,6 +1478,8 @@ function saveTodo() {
       id: generateId(), title, completed: false, priority,
       dueDate: dueDate || null, reminder: reminder || null,
       category: category || null, tags, order: maxOrder + 1,
+      repeat: repeat || null, note: note || null,
+      subtasks: [],
       createdAt: new Date().toISOString()
     });
   }
@@ -1373,11 +1487,7 @@ function saveTodo() {
   updateCategories(); saveData(); closeModal(); renderTodos();
   showToast(editingId ? '已更新 ✓' : '已添加 ✓');
   editingId = null;
-
-  // Request notification permission if reminder is set
-  if (reminder && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
+  scheduleCloudSync();
 }
 
 function toggleComplete(id) {
@@ -1522,17 +1632,19 @@ function showToast(msg) {
 }
 
 	// Init
-	function initApp() {
+		function initApp() {
 		  loadTheme();
-	  updateCategories();
-	  renderTodos();
-	  if (currentUser) {
-	    document.getElementById("headerUserName").textContent = "👤 " + currentUser.name;
-	    if (currentUser.role === "admin") {
-	      document.getElementById("headerAdminBtn").style.display = "inline-flex";
-	    }
-	  }
-	}
+		  updateCategories();
+		  renderTodos();
+		  if (currentUser) {
+		    document.getElementById("headerUserName").textContent = "👤 " + currentUser.name;
+		    if (currentUser.role === "admin") {
+		      document.getElementById("headerAdminBtn").style.display = "inline-flex";
+		    }
+		    loadFromCloud().then(() => { updateCategories(); renderTodos(); });
+		  }
+		}
+
 
 // ==================== GAME: 你画我猜 ====================
 const WORD_LIST = [
