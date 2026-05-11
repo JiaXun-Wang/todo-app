@@ -18,9 +18,50 @@
   --radius: 12px; --radius-sm: 8px; --radius-xs: 6px;
 }
 
+/* Dark Mode */
+[data-theme="dark"] {
+  --bg: #1c1c1e; --card-bg: #2c2c2e; --text: #f5f5f7;
+  --text-secondary: #98989d; --text-tertiary: #636366; --border: #3a3a3c;
+  --accent-light: #1c3a5e; --danger-light: #3e1c1c;
+  --warning-light: #3e3518; --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+/* Accent Themes */
+[data-accent="blue"] { --accent: #007aff; }
+[data-accent="green"] { --accent: #34c759; }
+[data-accent="purple"] { --accent: #af52de; }
+[data-accent="orange"] { --accent: #ff9500; }
+
+/* Theme Settings */
+.theme-settings-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 200;
+}
+.theme-settings {
+  background: var(--card-bg); border-radius: var(--radius); padding: 24px;
+  width: 90%; max-width: 440px;
+}
+.theme-settings h3 { font-size: 18px; margin-bottom: 16px; }
+.theme-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.theme-row:last-child { border-bottom: none; }
+.theme-row span { font-size: 14px; }
+.accent-picker { display: flex; gap: 8px; }
+.accent-dot {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 3px solid transparent;
+  transition: all 0.15s;
+}
+.accent-dot.active { border-color: var(--text); }
+.accent-dot.blue { background: #007aff; }
+.accent-dot.green { background: #34c759; }
+.accent-dot.purple { background: #af52de; }
+.accent-dot.orange { background: #ff9500; }
+.bg-upload-row { display: flex; gap: 8px; align-items: center; }
+.bg-upload-row input { flex: 1; font-size: 13px; }
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg); color: var(--text); min-height: 100vh;
+  background: var(--bg); color: var(--text); min-height: 100vh; transition: background 0.3s, color 0.3s;
   display: flex; justify-content: center; padding: 40px 20px;
 }
 
@@ -413,6 +454,8 @@ body {
       <div class="header-actions">
         <button class="btn btn-outline btn-sm" onclick="handleImport()">📥 导入</button>
         <button class="btn btn-outline btn-sm" onclick="exportData()">💾 保存</button>
+        <button class="btn btn-outline btn-sm" onclick="toggleDarkMode()" title="深色模式" style="font-size:16px;padding:5px 8px;" id="themeToggleBtn">🌙</button>
+        <button class="btn btn-outline btn-sm" onclick="openThemeSettings()" title="主题设置" style="font-size:14px;padding:5px 8px;">🎨</button>
         <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;" id="headerUserName"></span>
         <button class="btn btn-outline btn-sm" id="headerAdminBtn" style="display:none;" onclick="openAdminPanel()">👑 管理</button>
         <button class="btn btn-primary" onclick="openAddModal()">+ 新建</button>
@@ -677,6 +720,46 @@ body {
   </div>
 </div>
 
+
+<!-- Theme Settings Panel -->
+<div class="theme-settings-overlay" id="themeSettings" style="display:none;" onclick="if(event.target===this)closeThemeSettings()">
+  <div class="theme-settings">
+    <h3>🎨 主题设置</h3>
+    <div class="theme-row">
+      <span>深色模式</span>
+      <label style="position:relative;display:inline-block;width:48px;height:26px;">
+        <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" style="opacity:0;width:0;height:0;">
+        <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:26px;transition:0.3s;" id="darkModeSlider"></span>
+        <span style="position:absolute;content:'';height:20px;width:20px;left:3px;bottom:3px;background:white;border-radius:50%;transition:0.3s;" id="darkModeKnob"></span>
+      </label>
+    </div>
+    <div class="theme-row">
+      <span>主题色</span>
+      <div class="accent-picker">
+        <div class="accent-dot blue active" onclick="setAccent('blue')" title="蓝色"></div>
+        <div class="accent-dot green" onclick="setAccent('green')" title="绿色"></div>
+        <div class="accent-dot purple" onclick="setAccent('purple')" title="紫色"></div>
+        <div class="accent-dot orange" onclick="setAccent('orange')" title="橙色"></div>
+      </div>
+    </div>
+    <div class="theme-row">
+      <span>背景图片</span>
+      <div class="bg-upload-row">
+        <input type="text" id="bgImageUrl" placeholder="输入图片URL..." onchange="setBgImage()">
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('bgImageFile').click()">本地上传</button>
+        <input type="file" id="bgImageFile" accept="image/*" style="display:none;" onchange="handleBgUpload()">
+      </div>
+    </div>
+    <div class="theme-row" id="bgClearRow" style="display:none;">
+      <span></span>
+      <button class="btn btn-danger btn-sm" onclick="clearBgImage()">清除背景</button>
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeThemeSettings()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- Admin Panel -->
 <div class="admin-panel-overlay" id="adminPanel" style="display:none;" onclick="if(event.target===this)closeAdminPanel()">
   <div class="admin-panel">
@@ -915,6 +998,106 @@ async function rejectUser(name) {
   if (res.error) { showToast(res.error); return; }
   showToast(res.message);
   loadAdminUsers();
+}
+
+
+// ==================== THEME ====================
+function loadTheme() {
+  const theme = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('darkModeToggle').checked = theme === 'dark';
+  updateDarkModeUI(theme === 'dark');
+
+  const accent = localStorage.getItem('accent') || 'blue';
+  document.documentElement.setAttribute('data-accent', accent);
+  document.querySelectorAll('.accent-dot').forEach(d => d.classList.remove('active'));
+  const activeDot = document.querySelector('.accent-dot.' + accent);
+  if (activeDot) activeDot.classList.add('active');
+
+  const bg = localStorage.getItem('bg_image');
+  if (bg) {
+    document.body.style.backgroundImage = 'url(' + bg + ')';
+    document.body.style.backgroundSize = 'cover';
+    document.body.style.backgroundAttachment = 'fixed';
+    document.getElementById('bgClearRow').style.display = 'flex';
+    document.getElementById('bgImageUrl').value = bg;
+  }
+}
+
+function toggleDarkMode() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const newTheme = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('theme', newTheme);
+  updateDarkModeUI(!isDark);
+}
+
+function updateDarkModeUI(isDark) {
+  document.getElementById('darkModeToggle').checked = isDark;
+  document.getElementById('themeToggleBtn').textContent = isDark ? '☀️' : '🌙';
+  const slider = document.getElementById('darkModeSlider');
+  const knob = document.getElementById('darkModeKnob');
+  if (isDark) {
+    slider.style.background = 'var(--accent)';
+    knob.style.left = '25px';
+  } else {
+    slider.style.background = 'var(--border)';
+    knob.style.left = '3px';
+  }
+}
+
+function setAccent(color) {
+  document.documentElement.setAttribute('data-accent', color);
+  localStorage.setItem('accent', color);
+  document.querySelectorAll('.accent-dot').forEach(d => d.classList.remove('active'));
+  const dot = document.querySelector('.accent-dot.' + color);
+  if (dot) dot.classList.add('active');
+}
+
+function openThemeSettings() {
+  document.getElementById('themeSettings').style.display = 'flex';
+  document.getElementById('darkModeToggle').checked =
+    document.documentElement.getAttribute('data-theme') === 'dark';
+  updateDarkModeUI(document.getElementById('darkModeToggle').checked);
+}
+
+function closeThemeSettings() {
+  document.getElementById('themeSettings').style.display = 'none';
+}
+
+function setBgImage() {
+  const url = document.getElementById('bgImageUrl').value.trim();
+  if (!url) { clearBgImage(); return; }
+  localStorage.setItem('bg_image', url);
+  document.body.style.backgroundImage = 'url(' + url + ')';
+  document.body.style.backgroundSize = 'cover';
+  document.body.style.backgroundAttachment = 'fixed';
+  document.getElementById('bgClearRow').style.display = 'flex';
+}
+
+function handleBgUpload() {
+  const file = document.getElementById('bgImageFile').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const dataUrl = e.target.result;
+    localStorage.setItem('bg_image', dataUrl);
+    document.body.style.backgroundImage = 'url(' + dataUrl + ')';
+    document.body.style.backgroundSize = 'cover';
+    document.body.style.backgroundAttachment = 'fixed';
+    document.getElementById('bgImageUrl').value = '[本地图片]';
+    document.getElementById('bgClearRow').style.display = 'flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearBgImage() {
+  localStorage.removeItem('bg_image');
+  document.body.style.backgroundImage = '';
+  document.body.style.backgroundSize = '';
+  document.body.style.backgroundAttachment = '';
+  document.getElementById('bgImageUrl').value = '';
+  document.getElementById('bgClearRow').style.display = 'none';
 }
 
 // ==================== TODO APP ====================
@@ -1340,6 +1523,7 @@ function showToast(msg) {
 
 	// Init
 	function initApp() {
+		  loadTheme();
 	  updateCategories();
 	  renderTodos();
 	  if (currentUser) {
