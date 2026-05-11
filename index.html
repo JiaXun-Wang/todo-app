@@ -309,6 +309,65 @@ body {
   .game-sidebar { width: 100%; }
   .game-chat { min-height: 120px; max-height: 200px; }
 }
+
+/* Auth Overlay */
+.auth-overlay {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; z-index: 300;
+}
+.auth-card {
+  background: var(--card-bg); border-radius: var(--radius); padding: 32px 28px;
+  width: 90%; max-width: 400px; box-shadow: var(--shadow-md);
+}
+.auth-card h2 { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 6px; }
+.auth-card .auth-subtitle { text-align: center; font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+.auth-tabs { display: flex; gap: 0; margin-bottom: 20px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
+.auth-tab {
+  flex: 1; padding: 10px; border: none; cursor: pointer; font-size: 14px; font-weight: 500;
+  font-family: inherit; background: var(--bg); color: var(--text-secondary); transition: all 0.15s;
+}
+.auth-tab.active { background: var(--accent); color: #fff; }
+.auth-card .form-group { margin-bottom: 14px; }
+.auth-card .form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+.auth-card .form-group input {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); font-size: 14px; font-family: inherit;
+  outline: none; background: var(--bg); transition: border-color 0.15s;
+}
+.auth-card .form-group input:focus { border-color: var(--accent); }
+.auth-error { color: var(--danger); font-size: 13px; text-align: center; min-height: 20px; margin-bottom: 8px; }
+.auth-success { color: var(--success); font-size: 13px; text-align: center; min-height: 20px; margin-bottom: 8px; }
+.btn-auth { width: 100%; padding: 10px; border-radius: var(--radius-xs); font-size: 15px; font-weight: 600;
+  border: none; cursor: pointer; background: var(--accent); color: #fff; font-family: inherit;
+  transition: opacity 0.15s; }
+.btn-auth:hover { opacity: 0.85; }
+.btn-auth:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Admin Panel */
+.admin-panel-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 200;
+}
+.admin-panel {
+  background: var(--card-bg); border-radius: var(--radius); padding: 24px;
+  width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto;
+}
+.admin-panel h3 { font-size: 18px; margin-bottom: 16px; }
+.admin-user-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  margin-bottom: 6px; gap: 10px;
+}
+.admin-user-info { flex: 1; min-width: 0; }
+.admin-user-name { font-weight: 600; font-size: 14px; }
+.admin-user-meta { font-size: 12px; color: var(--text-secondary); }
+.admin-user-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.badge-status {
+  display: inline-block; padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 500;
+}
+.badge-pending { background: var(--warning-light); color: var(--warning); }
+.badge-approved { background: #e8f5e9; color: #4caf50; }
+.badge-admin { background: var(--accent-light); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -333,7 +392,10 @@ body {
       <div class="header-actions">
         <button class="btn btn-outline btn-sm" onclick="handleImport()">📥 导入</button>
         <button class="btn btn-outline btn-sm" onclick="exportData()">💾 保存</button>
+        <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;" id="headerUserName"></span>
+        <button class="btn btn-outline btn-sm" id="headerAdminBtn" style="display:none;" onclick="openAdminPanel()">👑 管理</button>
         <button class="btn btn-primary" onclick="openAddModal()">+ 新建</button>
+        <button class="btn btn-danger btn-sm" onclick="handleLogout()">退出</button>
       </div>
     </div>
 
@@ -520,7 +582,195 @@ body {
   </div>
 </div>
 
+<!-- Auth Overlay -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <h2>🐱 Todo App</h2>
+    <p class="auth-subtitle">登录或注册以继续</p>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">登录</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">注册</button>
+    </div>
+    <div id="authError" class="auth-error"></div>
+    <div id="authSuccess" class="auth-success"></div>
+    <div id="authFormLogin">
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="loginName" placeholder="输入用户名..." maxlength="20" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="loginPassword" placeholder="输入密码..." onkeydown="if(event.key==='Enter')handleLogin()">
+      </div>
+      <button class="btn-auth" onclick="handleLogin()">登 录</button>
+    </div>
+    <div id="authFormRegister" style="display:none;">
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="registerName" placeholder="设置用户名（2-20字符）..." maxlength="20" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="registerPassword" placeholder="设置密码（至少4位）..." onkeydown="if(event.key==='Enter')handleRegister()">
+      </div>
+      <button class="btn-auth" onclick="handleRegister()">注 册</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Panel -->
+<div class="admin-panel-overlay" id="adminPanel" style="display:none;" onclick="if(event.target===this)closeAdminPanel()">
+  <div class="admin-panel">
+    <h3>👑 用户管理</h3>
+    <div id="adminUserList"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeAdminPanel()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ==================== AUTH ====================
+// Change this to your Vercel deployment URL after first deploy
+const API_BASE = 'https://test-9pz7gnl6e-jiaxun-wangs-projects.vercel.app';
+
+let authToken = null;
+let currentUser = null;
+
+async function apiCall(path, body = null) {
+  const opts = {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
+  const res = await fetch(API_BASE + path, opts);
+  return res.json();
+}
+
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('authFormLogin').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('authFormRegister').style.display = tab === 'register' ? 'block' : 'none';
+  document.getElementById('authError').textContent = '';
+  document.getElementById('authSuccess').textContent = '';
+}
+
+async function handleLogin() {
+  const name = document.getElementById('loginName').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  if (!name || !password) { errEl.textContent = '请填写用户名和密码'; return; }
+  const btn = document.querySelector('#authFormLogin .btn-auth');
+  btn.disabled = true; btn.textContent = '登录中...';
+  const res = await apiCall('/api/login', { name, password });
+  btn.disabled = false; btn.textContent = '登 录';
+  if (res.error) { errEl.textContent = res.error; return; }
+  authToken = res.token;
+  currentUser = { name: res.name, role: res.role };
+  localStorage.setItem('auth_token', authToken);
+  localStorage.setItem('auth_user', JSON.stringify(currentUser));
+  document.getElementById('authOverlay').style.display = 'none';
+  initApp();
+}
+
+async function handleRegister() {
+  const name = document.getElementById('registerName').value.trim();
+  const password = document.getElementById('registerPassword').value;
+  const errEl = document.getElementById('authError');
+  const sucEl = document.getElementById('authSuccess');
+  errEl.textContent = ''; sucEl.textContent = '';
+  if (!name || !password) { errEl.textContent = '请填写用户名和密码'; return; }
+  if (name.length < 2 || name.length > 20) { errEl.textContent = '用户名需2-20个字符'; return; }
+  if (password.length < 4) { errEl.textContent = '密码至少4位'; return; }
+  const btn = document.querySelector('#authFormRegister .btn-auth');
+  btn.disabled = true; btn.textContent = '注册中...';
+  const res = await apiCall('/api/register', { name, password });
+  btn.disabled = false; btn.textContent = '注 册';
+  if (res.error) { errEl.textContent = res.error; return; }
+  sucEl.textContent = res.message;
+  document.getElementById('registerName').value = '';
+  document.getElementById('registerPassword').value = '';
+}
+
+async function verifyToken() {
+  const token = localStorage.getItem('auth_token');
+  const user = localStorage.getItem('auth_user');
+  if (!token || !user) return false;
+  authToken = token;
+  const res = await apiCall('/api/verify');
+  if (res.error) { authToken = null; localStorage.removeItem('auth_token'); localStorage.removeItem('auth_user'); return false; }
+  currentUser = { name: res.name, role: res.role };
+  localStorage.setItem('auth_user', JSON.stringify(currentUser));
+  return true;
+}
+
+function handleLogout() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_user');
+  document.getElementById('authOverlay').style.display = 'flex';
+  document.getElementById('loginName').value = '';
+  document.getElementById('loginPassword').value = '';
+}
+
+// ==================== ADMIN ====================
+async function openAdminPanel() {
+  document.getElementById('adminPanel').style.display = 'flex';
+  await loadAdminUsers();
+}
+
+function closeAdminPanel() {
+  document.getElementById('adminPanel').style.display = 'none';
+}
+
+async function loadAdminUsers() {
+  const list = document.getElementById('adminUserList');
+  list.innerHTML = '<p style="color:var(--text-secondary);">加载中...</p>';
+  const res = await apiCall('/api/admin/users');
+  if (res.error) { list.innerHTML = '<p style="color:var(--danger);">' + res.error + '</p>'; return; }
+  const pending = res.users.filter(u => u.status === 'pending');
+  const approved = res.users.filter(u => u.status === 'approved');
+  let html = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">待审批: ' + pending.length + ' 人</p>';
+  if (res.users.length === 0) {
+    html += '<p style="color:var(--text-tertiary);text-align:center;padding:20px;">暂无用户</p>';
+  }
+  res.users.forEach(u => {
+    let badge = '';
+    if (u.role === 'admin') badge = '<span class="badge-status badge-admin">管理员</span>';
+    else if (u.status === 'pending') badge = '<span class="badge-status badge-pending">待审批</span>';
+    else if (u.status === 'approved') badge = '<span class="badge-status badge-approved">已通过</span>';
+    let actions = '';
+    if (u.status === 'pending') {
+      actions = '<button class="btn btn-success btn-sm" onclick="approveUser(\'' + escapeHtml(u.name) + '\')">通过</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="rejectUser(\'' + escapeHtml(u.name) + '\')">拒绝</button>';
+    }
+    html += '<div class="admin-user-row">' +
+      '<div class="admin-user-info"><div class="admin-user-name">' + escapeHtml(u.name) + '</div>' +
+      '<div class="admin-user-meta">' + badge + ' 注册: ' + (u.createdAt ? u.createdAt.slice(0,10) : '--') + '</div></div>' +
+      '<div class="admin-user-actions">' + actions + '</div></div>';
+  });
+  list.innerHTML = html;
+}
+
+async function approveUser(name) {
+  const res = await apiCall('/api/admin/approve', { name });
+  if (res.error) { showToast(res.error); return; }
+  showToast(res.message);
+  loadAdminUsers();
+}
+
+async function rejectUser(name) {
+  if (!confirm('确定拒绝用户 ' + name + ' 的注册吗？')) return;
+  const res = await apiCall('/api/admin/reject', { name });
+  if (res.error) { showToast(res.error); return; }
+  showToast(res.message);
+  loadAdminUsers();
+}
+
 // ==================== TODO APP ====================
 const STORAGE_KEY = 'todo_app_data';
 let todos = [];
@@ -942,9 +1192,17 @@ function showToast(msg) {
   setTimeout(() => toast.remove(), 2000);
 }
 
-// Init
-updateCategories();
-renderTodos();
+	// Init
+	function initApp() {
+	  updateCategories();
+	  renderTodos();
+	  if (currentUser) {
+	    document.getElementById("headerUserName").textContent = "👤 " + currentUser.name;
+	    if (currentUser.role === "admin") {
+	      document.getElementById("headerAdminBtn").style.display = "inline-flex";
+	    }
+	  }
+	}
 
 // ==================== GAME: 你画我猜 ====================
 const WORD_LIST = [
@@ -1913,12 +2171,20 @@ function addGameToast(msg) {
   showToast(msg);
 }
 
-// Init canvas on load
-initCanvas();
-window.addEventListener('load', () => {
-  setTimeout(checkUrlHash, 500);
-});
-window.addEventListener('hashchange', checkUrlHash);
+	// Auth startup + canvas init
+	async function startApp() {
+	  initCanvas();
+	  window.addEventListener("hashchange", checkUrlHash);
+	  const authed = await verifyToken();
+	  if (authed) {
+	    document.getElementById("authOverlay").style.display = "none";
+	    initApp();
+	    setTimeout(checkUrlHash, 500);
+	  } else {
+	    document.getElementById("authOverlay").style.display = "flex";
+	  }
+	}
+	window.addEventListener("load", startApp);
 </script>
 </body>
 </html>
