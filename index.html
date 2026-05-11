@@ -669,6 +669,70 @@ body {
   </div>
 </div>
 
+
+<!-- Announcement Bar -->
+<div id="announceBar" style="display:none;background:var(--accent-light);color:var(--accent);padding:8px 16px;text-align:center;font-size:13px;border-radius:var(--radius-sm);margin-bottom:12px;position:relative;">
+  <span id="announceText"></span>
+  <button onclick="dismissAnnounce()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;color:var(--accent);">×</button>
+</div>
+
+<!-- Profile Panel -->
+<div class="admin-panel-overlay" id="profilePanel" style="display:none;" onclick="if(event.target===this)closeProfile()">
+  <div class="admin-panel">
+    <h3>👤 个人主页</h3>
+    <div style="text-align:center;margin-bottom:16px;">
+      <div id="profileAvatar" style="font-size:60px;cursor:pointer;margin-bottom:8px;" onclick="cycleAvatar()" title="点击切换头像">🐱</div>
+      <div style="font-size:18px;font-weight:700;" id="profileName"></div>
+      <div style="font-size:13px;color:var(--text-secondary);" id="profileRole"></div>
+      <div style="margin-top:8px;">
+        <input type="text" id="profileSignature" placeholder="写个签名..." maxlength="50" style="text-align:center;padding:6px 12px;border-radius:16px;border:1px solid var(--border);font-size:13px;font-family:inherit;outline:none;width:80%;background:var(--bg);" onchange="saveSignature()">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--accent);" id="statDays">0</div>
+        <div style="font-size:12px;color:var(--text-secondary);">使用天数</div>
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--success);" id="statCompleted">0</div>
+        <div style="font-size:12px;color:var(--text-secondary);">已完成待办</div>
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--warning);" id="statTotal">0</div>
+        <div style="font-size:12px;color:var(--text-secondary);">待办总数</div>
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#af52de;" id="statGameWins">0</div>
+        <div style="font-size:12px;color:var(--text-secondary);">游戏猜对</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="openChangePassword()">🔒 修改密码</button>
+      <button class="btn btn-outline" onclick="closeProfile()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="admin-panel-overlay" id="changePwdPanel" style="display:none;" onclick="if(event.target===this)closeChangePwd()">
+  <div class="admin-panel">
+    <h3>🔒 修改密码</h3>
+    <div id="changePwdError" class="auth-error"></div>
+    <div id="changePwdSuccess" class="auth-success"></div>
+    <div class="form-group">
+      <label>旧密码</label>
+      <input type="password" id="oldPassword" placeholder="输入旧密码...">
+    </div>
+    <div class="form-group">
+      <label>新密码</label>
+      <input type="password" id="newPassword" placeholder="输入新密码（至少4位）...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeChangePwd()">取消</button>
+      <button class="btn btn-primary" onclick="handleChangePassword()">确认修改</button>
+    </div>
+  </div>
+</div>
 <!-- Auth Overlay -->
 <!-- Auth Overlay -->
 <div class="auth-overlay" id="authOverlay">
@@ -788,6 +852,7 @@ body {
   <div class="admin-panel">
     <h3>👑 用户管理</h3>
     <div id="adminUserList"></div>
+		    <div style="margin-bottom:12px;"><button class="btn btn-outline btn-sm" onclick="publishAnnounce()">📢 发布公告</button></div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn btn-outline" onclick="closeAdminPanel()">关闭</button>
     </div>
@@ -1140,6 +1205,7 @@ async function syncToCloud() {
 }
 
 async function loadFromCloud() {
+		    checkAnnounce();
   if (!authToken) return;
   try {
     const res = await apiCall('/api/sync');
@@ -1182,6 +1248,120 @@ function toggleSubtaskInModal(idx, checked) {
 function removeSubtaskInModal(idx) {
   modalSubtasks.splice(idx, 1);
   renderSubtasksInModal(modalSubtasks);
+}
+
+
+// ==================== PROFILE ====================
+let gameCorrectCount = 0;
+let gameDrawCount = 0;
+
+function openProfile() {
+  document.getElementById('profilePanel').style.display = 'flex';
+  document.getElementById('profileName').textContent = currentUser.name;
+  document.getElementById('profileRole').textContent = currentUser.role === 'admin' ? '管理员' : '用户';
+  const avatar = localStorage.getItem('user_avatar') || '🐱';
+  document.getElementById('profileAvatar').textContent = avatar;
+  const sig = localStorage.getItem('user_signature') || '';
+  document.getElementById('profileSignature').value = sig;
+
+  // Calculate stats
+  const now = new Date();
+  const created = currentUser.createdAt ? new Date(currentUser.createdAt) : now;
+  const days = Math.max(1, Math.floor((now - created) / (24 * 3600 * 1000)));
+  document.getElementById('statDays').textContent = days;
+  document.getElementById('statCompleted').textContent = todos.filter(t => t.completed).length;
+  document.getElementById('statTotal').textContent = todos.length;
+  document.getElementById('statGameWins').textContent = gameCorrectCount;
+}
+
+function closeProfile() {
+  document.getElementById('profilePanel').style.display = 'none';
+}
+
+function cycleAvatar() {
+  const avatars = ['🐱','🐶','🐰','🐼','🦊','🐸','🐵','🦁','🐮','🐷','🐭','🐹','🐻','🐨','🐯','🦄','🐙','🐳','🦋','🐞'];
+  const current = document.getElementById('profileAvatar').textContent;
+  const idx = avatars.indexOf(current);
+  const next = avatars[(idx + 1) % avatars.length];
+  document.getElementById('profileAvatar').textContent = next;
+  localStorage.setItem('user_avatar', next);
+}
+
+function saveSignature() {
+  const sig = document.getElementById('profileSignature').value.trim();
+  localStorage.setItem('user_signature', sig);
+  showToast('签名已保存');
+}
+
+// Track game stats
+const origHandleGameData = handleGameData;
+handleGameData = function(data, peerId) {
+  origHandleGameData(data, peerId);
+  if (data.type === 'guess' && data.correct && data.peerId === myPeerId) {
+    gameCorrectCount++;
+  }
+  if (data.type === 'new_round' && data.drawerPeerId === myPeerId) {
+    gameDrawCount++;
+  }
+};
+
+// ==================== CHANGE PASSWORD ====================
+function openChangePassword() {
+  document.getElementById('changePwdPanel').style.display = 'flex';
+  document.getElementById('changePwdError').textContent = '';
+  document.getElementById('changePwdSuccess').textContent = '';
+  document.getElementById('oldPassword').value = '';
+  document.getElementById('newPassword').value = '';
+}
+
+function closeChangePwd() {
+  document.getElementById('changePwdPanel').style.display = 'none';
+}
+
+async function handleChangePassword() {
+  const oldPwd = document.getElementById('oldPassword').value;
+  const newPwd = document.getElementById('newPassword').value;
+  const errEl = document.getElementById('changePwdError');
+  const sucEl = document.getElementById('changePwdSuccess');
+  errEl.textContent = ''; sucEl.textContent = '';
+  if (!oldPwd || !newPwd) { errEl.textContent = '请填写旧密码和新密码'; return; }
+  if (newPwd.length < 4) { errEl.textContent = '新密码至少4位'; return; }
+  const res = await apiCall('/api/change-password', { oldPassword: oldPwd, newPassword: newPwd });
+  if (res.error) { errEl.textContent = res.error; return; }
+  authToken = res.token;
+  localStorage.setItem('auth_token', authToken);
+  sucEl.textContent = '密码已修改';
+  setTimeout(closeChangePwd, 1500);
+}
+
+// ==================== ANNOUNCEMENTS ====================
+let announceId = null;
+
+async function checkAnnounce() {
+  try {
+    const res = await apiCall('/api/announce');
+    if (res.text && res.id) {
+      const dismissed = localStorage.getItem('announce_dismissed');
+      if (dismissed !== res.id) {
+        document.getElementById('announceText').textContent = '📢 ' + res.text;
+        document.getElementById('announceBar').style.display = 'block';
+        announceId = res.id;
+      }
+    }
+  } catch(e) {}
+}
+
+function dismissAnnounce() {
+  document.getElementById('announceBar').style.display = 'none';
+  if (announceId) localStorage.setItem('announce_dismissed', announceId);
+}
+
+async function publishAnnounce() {
+  const text = prompt('输入公告内容:');
+  if (!text) return;
+  const res = await apiCall('/api/announce/publish', { text });
+  if (res.error) { showToast(res.error); return; }
+  showToast('公告已发布');
 }
 
 // ==================== TODO APP ====================
@@ -1643,11 +1823,12 @@ function showToast(msg) {
 		  updateCategories();
 		  renderTodos();
 		  if (currentUser) {
-		    document.getElementById("headerUserName").textContent = "👤 " + currentUser.name;
+		    document.getElementById("headerUserName").innerHTML = "<a href=\"#\" onclick=\"openProfile();return false;\" style=\"color:var(--accent);text-decoration:none;cursor:pointer;\">👤 " + currentUser.name + "</a>";
 		    if (currentUser.role === "admin") {
 		      document.getElementById("headerAdminBtn").style.display = "inline-flex";
 		    }
 		    loadFromCloud().then(() => { updateCategories(); renderTodos(); });
+		    checkAnnounce();
 		  }
 		}
 
