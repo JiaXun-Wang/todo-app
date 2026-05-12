@@ -403,9 +403,13 @@ function requestNotificationPermission() {
     showToast('你的浏览器不支持通知');
     return;
   }
+  if (Notification.permission === 'denied') {
+    showToast('通知权限已被拒绝，请在浏览器设置中重新允许');
+    return;
+  }
   Notification.requestPermission().then(function(perm) {
     if (perm === 'granted') {
-      showToast('通知已开启');
+      showToast('通知已开启 ✓');
       var notifBtn = document.getElementById('notifEnableBtn');
       if (notifBtn) notifBtn.style.display = 'none';
     } else {
@@ -416,7 +420,12 @@ function requestNotificationPermission() {
 
 function checkReminders() {
   if (Notification.permission !== 'granted') return;
-  var now = new Date().toISOString().slice(0,16);
+  var d = new Date();
+  var now = d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0') + 'T' +
+    String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0');
   todos.forEach(function(t) {
     if (t.reminder && !t.reminderNotified && t.reminder.slice(0,16) === now && !t.completed) {
       new Notification('⏰ 待办提醒', {

@@ -14,10 +14,10 @@ function initApp() {
   loadTheme();
   updateCategories();
   renderTodos();
-  // Show notification enable button if permission is undecided
+  // Show notification enable button if permission is not granted
   var notifBtn = document.getElementById('notifEnableBtn');
   if (notifBtn && 'Notification' in window) {
-    if (Notification.permission === 'default') {
+    if (Notification.permission !== 'granted') {
       notifBtn.style.display = 'inline-flex';
     }
   }
