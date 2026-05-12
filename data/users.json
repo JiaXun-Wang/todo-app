@@ -22,7 +22,30 @@
     "role": "user",
     "status": "approved",
     "token": null,
-    "createdAt": "2026-05-12T05:59:29.079Z"
+    "createdAt": "2026-05-12T05:59:29.079Z",
+    "todos": [
+      {
+        "id": "mp2b8wtpif2qt",
+        "title": "写作业",
+        "completed": false,
+        "priority": "medium",
+        "dueDate": "2026-05-12",
+        "reminder": "2026-05-12T15:30",
+        "category": "学习",
+        "tags": [
+          "实验室"
+        ],
+        "order": 1,
+        "repeat": null,
+        "note": null,
+        "subtasks": [],
+        "createdAt": "2026-05-12T07:29:52.429Z"
+      }
+    ],
+    "categories": [
+      "学习"
+    ],
+    "lastSync": "2026-05-12T07:29:57.312Z"
   },
   {
     "name": "蛋卷大侠",
