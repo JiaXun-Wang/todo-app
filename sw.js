@@ -41,6 +41,12 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
 
+  // Only handle http/https requests (skip chrome-extension, etc.)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
+  // Only handle requests to our own origin
+  if (url.hostname !== location.hostname && url.hostname !== 'unpkg.com') return;
+
   // API calls: network-first
   if (url.pathname.indexOf('/api/') === 0) {
     event.respondWith(
