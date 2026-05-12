@@ -304,6 +304,7 @@ function saveTodo() {
 function toggleComplete(id) {
   const t = todos.find(x => x.id === id);
   if (t) { t.completed = !t.completed; saveData(); renderTodos(); }
+  scheduleCloudSync();
 }
 
 function deleteTodo(id) {
@@ -331,6 +332,7 @@ function batchMarkComplete() {
   if (selectedIds.size === 0) return;
   todos.forEach(t => { if (selectedIds.has(t.id)) t.completed = true; });
   selectedIds.clear(); saveData(); renderTodos();
+  scheduleCloudSync();
   showToast('已批量完成 ✓');
 }
 
@@ -339,6 +341,7 @@ function batchDelete() {
   if (!confirm(`确定要删除选中的 ${selectedIds.size} 条待办吗？`)) return;
   todos = todos.filter(t => !selectedIds.has(t.id));
   selectedIds.clear(); updateCategories(); saveData(); renderTodos();
+  scheduleCloudSync();
   showToast('已批量删除');
 }
 
