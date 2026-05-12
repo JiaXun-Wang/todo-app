@@ -6,7 +6,26 @@
     "status": "approved",
     "token": "6221de15efbb4ba94fdef3d6eee2c8b93b82dc739a29578e93883aef973317a1",
     "createdAt": "2026-05-11T00:00:00.000Z",
-    "lastLogin": "2026-05-12T04:11:44.235Z"
+    "lastLogin": "2026-05-12T04:11:44.235Z",
+    "todos": [
+      {
+        "id": "mp2no0wmdqpus",
+        "title": "111",
+        "completed": false,
+        "priority": "medium",
+        "dueDate": "2026-05-12",
+        "reminder": "2026-05-12T21:18",
+        "category": null,
+        "tags": [],
+        "order": 1,
+        "repeat": null,
+        "note": null,
+        "subtasks": [],
+        "createdAt": "2026-05-12T13:17:32.950Z"
+      }
+    ],
+    "categories": [],
+    "lastSync": "2026-05-12T13:17:36.137Z"
   },
   {
     "name": "test",
