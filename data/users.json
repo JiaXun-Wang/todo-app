@@ -4,7 +4,8 @@
     "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
     "role": "admin",
     "status": "approved",
-    "token": null,
-    "createdAt": "2026-05-11T00:00:00.000Z"
+    "token": "58d1653b4a1c243277b8620ec6af2c2c70a59002b1b0e3e5ec2afa22837a2c17",
+    "createdAt": "2026-05-11T00:00:00.000Z",
+    "lastLogin": "2026-05-12T04:09:43.152Z"
   }
 ]
