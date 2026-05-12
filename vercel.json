@@ -4,7 +4,7 @@
   "installCommand": "",
   "functions": {
     "api/**/*.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     }
   }
 }

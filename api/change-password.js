@@ -1,46 +1,70 @@
-const { readUsers, writeUsers, hashPassword, generateToken, corsHeaders, jsonResponse } = require('./_lib/storage');
+const { readUsers, writeUsers, hashPassword, verifyToken, generateToken } = require('./_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    res.writeHead(405, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
     const auth = req.headers.authorization;
     if (!auth) {
-      return jsonResponse({ error: '未登录' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未登录' }));
+      return;
     }
-    const token = auth.replace('Bearer ', '');
+    const tokenData = verifyToken(auth.replace('Bearer ', ''));
+    if (!tokenData) {
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '登录已过期' }));
+      return;
+    }
 
-    const { oldPassword, newPassword } = req.body;
+    const { oldPassword, newPassword } = req.body || {};
     if (!oldPassword || !newPassword) {
-      return jsonResponse({ error: '请填写旧密码和新密码' }, 400);
+      res.writeHead(400, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '请填写旧密码和新密码' }));
+      return;
     }
     if (newPassword.length < 4) {
-      return jsonResponse({ error: '新密码至少4位' }, 400);
+      res.writeHead(400, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '新密码至少4位' }));
+      return;
     }
 
     const { users, sha } = await readUsers();
-    const user = users.find(u => u.token === token);
+    const user = users.find(u => u.name === tokenData.name);
     if (!user) {
-      return jsonResponse({ error: '登录已过期' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '用户不存在' }));
+      return;
     }
     if (user.password !== hashPassword(oldPassword)) {
-      return jsonResponse({ error: '旧密码错误' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '旧密码错误' }));
+      return;
     }
 
     user.password = hashPassword(newPassword);
-    user.token = generateToken(); // Invalidate old token
     await writeUsers(users, sha);
 
-    return jsonResponse({ message: '密码修改成功', token: user.token });
+    const newToken = generateToken(user);
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: '密码修改成功', token: newToken }));
   } catch (err) {
-    console.error('change password error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

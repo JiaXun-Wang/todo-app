@@ -1610,7 +1610,6 @@ function openAddModal() {
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
 }
-}
 
 function openEditModal(id) {
   const t = todos.find(x => x.id === id);
@@ -1629,7 +1628,6 @@ function openEditModal(id) {
   document.getElementById('subtaskInput').style.display = 'block';
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
-}
 }
 
 function closeModal() {
@@ -1834,6 +1832,13 @@ function showToast(msg) {
 
 
 // ==================== GAME: 你画我猜 ====================
+let peer = null, connections = {}, players = {}, myPeerId = null;
+let roomId = null, roomName = '', isRoomHost = false;
+let gameActive = false, currentWord = '', roundEnded = false;
+let guessedPeers = new Set(), myTurn = false;
+let totalRounds = 0, currentRound = 0;
+let roundTimer = null, roundTimeLeft = 80;
+let playerName = '';
 const WORD_LIST = [
   // Animals
   '小猫', '小狗', '兔子', '大象', '长颈鹿', '熊猫', '企鹅', '鲨鱼', '蝴蝶', '蜗牛',
@@ -2795,6 +2800,12 @@ function updateGameUI() {
   // Room name
   const rn = document.getElementById('roomNameDisplay');
   if (rn && roomName) rn.textContent = roomName;
+
+  // Host-only controls
+  const trs = document.getElementById('totalRoundsSelect');
+  if (trs) trs.style.display = isRoomHost ? '' : 'none';
+  const sgb = document.getElementById('startGameBtn');
+  if (sgb && !gameActive) sgb.style.display = isRoomHost ? '' : 'none';
 
   // Player list
   const pl = document.getElementById('playerList');

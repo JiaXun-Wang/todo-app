@@ -1,26 +1,33 @@
-const { readUsers, corsHeaders, jsonResponse } = require('../_lib/storage');
+const { readUsers, verifyToken } = require('../_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
 
   try {
-    const { users } = await readUsers();
-
     const auth = req.headers.authorization;
     if (!auth) {
-      return jsonResponse({ error: '未登录' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未登录' }));
+      return;
     }
-    const token = auth.replace('Bearer ', '');
-    const admin = users.find(u => u.role === 'admin' && u.token === token);
-    if (!admin) {
-      return jsonResponse({ error: '无管理员权限' }, 403);
+    const admin = verifyToken(auth.replace('Bearer ', ''));
+    if (!admin || admin.role !== 'admin') {
+      res.writeHead(403, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '无管理员权限' }));
+      return;
     }
 
-    // Return safe user list (no passwords)
+    const { users } = await readUsers();
     const safeUsers = users.map(u => ({
       name: u.name,
       role: u.role,
@@ -29,9 +36,10 @@ module.exports = async (req, res) => {
       lastLogin: u.lastLogin
     }));
 
-    return jsonResponse({ users: safeUsers });
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ users: safeUsers }));
   } catch (err) {
-    console.error('admin users error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

@@ -1,40 +1,52 @@
-const { readUsers, writeUsers, corsHeaders, jsonResponse } = require('../_lib/storage');
+const { readUsers, writeUsers, verifyToken } = require('../_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    res.writeHead(405, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
-    const { users, sha } = await readUsers();
-    const { name } = req.body;
-
     const auth = req.headers.authorization;
     if (!auth) {
-      return jsonResponse({ error: '未登录' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未登录' }));
+      return;
     }
-    const token = auth.replace('Bearer ', '');
-    const admin = users.find(u => u.role === 'admin' && u.token === token);
-    if (!admin) {
-      return jsonResponse({ error: '无管理员权限' }, 403);
+    const admin = verifyToken(auth.replace('Bearer ', ''));
+    if (!admin || admin.role !== 'admin') {
+      res.writeHead(403, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '无管理员权限' }));
+      return;
     }
 
+    const { users, sha } = await readUsers();
+    const { name } = req.body || {};
     const user = users.find(u => u.name === name && u.status === 'pending');
     if (!user) {
-      return jsonResponse({ error: '未找到待审批用户' }, 404);
+      res.writeHead(404, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未找到待审批用户' }));
+      return;
     }
 
     user.status = 'approved';
     await writeUsers(users, sha);
-
-    return jsonResponse({ message: `用户 ${name} 已审批通过` });
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: `用户 ${name} 已审批通过` }));
   } catch (err) {
-    console.error('approve error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

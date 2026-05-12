@@ -1,8 +1,14 @@
-const { readUsers, corsHeaders, jsonResponse } = require('./_lib/storage');
+const { verifyToken } = require('./_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
@@ -10,21 +16,21 @@ module.exports = async (req, res) => {
   try {
     const auth = req.headers.authorization;
     if (!auth) {
-      return jsonResponse({ error: '未登录' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未登录' }));
+      return;
     }
     const token = auth.replace('Bearer ', '');
-    const { users } = await readUsers();
-    const user = users.find(u => u.token === token);
+    const user = verifyToken(token);
     if (!user) {
-      return jsonResponse({ error: '登录已过期' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '登录已过期' }));
+      return;
     }
-    return jsonResponse({
-      name: user.name,
-      role: user.role,
-      status: user.status
-    });
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ name: user.name, role: user.role, status: user.status }));
   } catch (err) {
-    console.error('verify error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

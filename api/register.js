@@ -1,32 +1,48 @@
-const { readUsers, writeUsers, hashPassword, corsHeaders, jsonResponse } = require('./_lib/storage');
+const { readUsers, writeUsers, hashPassword } = require('./_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    res.writeHead(405, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
-    const { name, password } = req.body;
+    const { name, password } = req.body || {};
     if (!name || !password) {
-      return jsonResponse({ error: '名称和密码不能为空' }, 400);
+      res.writeHead(400, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '名称和密码不能为空' }));
+      return;
     }
     if (name.length < 2 || name.length > 20) {
-      return jsonResponse({ error: '名称长度需在2-20个字符之间' }, 400);
+      res.writeHead(400, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '名称长度需在2-20个字符之间' }));
+      return;
     }
     if (password.length < 4) {
-      return jsonResponse({ error: '密码长度至少4位' }, 400);
+      res.writeHead(400, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '密码长度至少4位' }));
+      return;
     }
 
     const { users, sha } = await readUsers();
 
     const existing = users.find(u => u.name === name);
     if (existing) {
-      return jsonResponse({ error: '该用户名已存在' }, 409);
+      res.writeHead(409, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '该用户名已存在' }));
+      return;
     }
 
     users.push({
@@ -39,9 +55,10 @@ module.exports = async (req, res) => {
     });
 
     await writeUsers(users, sha);
-    return jsonResponse({ message: '注册成功，等待管理员审批' });
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: '注册成功，等待管理员审批' }));
   } catch (err) {
-    console.error('register error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

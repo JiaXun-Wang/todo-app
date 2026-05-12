@@ -16,7 +16,10 @@ function apiHeaders() {
 }
 
 async function readUsers() {
-  const res = await fetch(API_BASE, { headers: apiHeaders() });
+  const res = await fetch(API_BASE, {
+    headers: apiHeaders(),
+    signal: AbortSignal.timeout(10000)
+  });
   if (res.status === 404) {
     return { users: [], sha: null };
   }
@@ -38,7 +41,8 @@ async function writeUsers(users, sha) {
   const res = await fetch(API_BASE, {
     method: 'PUT',
     headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000)
   });
   if (!res.ok) {
     throw new Error(`GitHub API write failed: ${res.status}`);
@@ -50,8 +54,36 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
+const TOKEN_SECRET = process.env.TOKEN_SECRET || 'todo-app-secret-key-2026';
+
+function generateToken(user) {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    name: user.name,
+    role: user.role,
+    status: user.status,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 86400 * 7
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', TOKEN_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
+
+function verifyToken(token) {
+  try {
+    const [header, payload, signature] = token.split('.');
+    const expectedSig = crypto.createHmac('sha256', TOKEN_SECRET)
+      .update(`${header}.${payload}`)
+      .digest('base64url');
+    if (signature !== expectedSig) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.exp && Date.now() > data.exp * 1000) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 function corsHeaders() {
@@ -70,4 +102,4 @@ function jsonResponse(data, status = 200) {
   };
 }
 
-module.exports = { readUsers, writeUsers, hashPassword, generateToken, corsHeaders, jsonResponse };
+module.exports = { readUsers, writeUsers, hashPassword, generateToken, verifyToken, corsHeaders, jsonResponse };

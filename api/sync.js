@@ -1,8 +1,14 @@
-const { readUsers, writeUsers, corsHeaders, jsonResponse } = require('./_lib/storage');
+const { readUsers, writeUsers, verifyToken } = require('./_lib/storage');
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
@@ -10,34 +16,46 @@ module.exports = async (req, res) => {
   try {
     const auth = req.headers.authorization;
     if (!auth) {
-      return jsonResponse({ error: '未登录' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未登录' }));
+      return;
     }
-    const token = auth.replace('Bearer ', '');
+    const tokenData = verifyToken(auth.replace('Bearer ', ''));
+    if (!tokenData) {
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '登录已过期' }));
+      return;
+    }
+
     const { users, sha } = await readUsers();
-    const user = users.find(u => u.token === token);
+    const user = users.find(u => u.name === tokenData.name);
     if (!user) {
-      return jsonResponse({ error: '登录已过期' }, 401);
+      res.writeHead(401, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '用户不存在' }));
+      return;
     }
 
     if (req.method === 'GET') {
-      return jsonResponse({
-        todos: user.todos || [],
-        categories: user.categories || []
-      });
+      res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ todos: user.todos || [], categories: user.categories || [] }));
+      return;
     }
 
     if (req.method === 'POST') {
-      const { todos, categories } = req.body;
+      const { todos, categories } = req.body || {};
       user.todos = todos || [];
       user.categories = categories || [];
       user.lastSync = new Date().toISOString();
       await writeUsers(users, sha);
-      return jsonResponse({ message: '同步成功' });
+      res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '同步成功' }));
+      return;
     }
 
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    res.writeHead(405, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
   } catch (err) {
-    console.error('sync error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };

@@ -1,5 +1,8 @@
-const { readUsers, corsHeaders, jsonResponse } = require('./_lib/storage');
-const crypto = require('crypto');
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
 const REPO_OWNER = 'JiaXun-Wang';
 const REPO_NAME = 'todo-app';
@@ -15,45 +18,34 @@ function apiHeaders() {
   };
 }
 
-async function readAnnounce() {
-  const res = await fetch(API_BASE, { headers: apiHeaders() });
-  if (res.status === 404) {
-    return { data: { text: '', id: '' }, sha: null };
-  }
-  if (!res.ok) throw new Error(`GitHub API read failed: ${res.status}`);
-  const data = await res.json();
-  const content = Buffer.from(data.content, 'base64').toString('utf8');
-  return { data: JSON.parse(content), sha: data.sha };
-}
-
-async function writeAnnounce(data, sha) {
-  const content = Buffer.from(JSON.stringify(data, null, 2)).toString('base64');
-  const body = { message: 'Update announce', content, sha };
-  const res = await fetch(API_BASE, {
-    method: 'PUT',
-    headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error(`GitHub API write failed: ${res.status}`);
-  return res.json();
-}
-
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, CORS);
     res.end();
     return;
   }
 
   try {
     if (req.method === 'GET') {
-      const { data } = await readAnnounce();
-      return jsonResponse(data);
+      const fetchRes = await fetch(API_BASE, { headers: apiHeaders(), signal: AbortSignal.timeout(10000) });
+      if (fetchRes.status === 404) {
+        res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ text: '', id: '' }));
+        return;
+      }
+      if (!fetchRes.ok) throw new Error(`GitHub API read failed: ${fetchRes.status}`);
+      const data = await fetchRes.json();
+      const content = Buffer.from(data.content, 'base64').toString('utf8');
+      const announce = JSON.parse(content);
+      res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(announce));
+      return;
     }
 
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    res.writeHead(405, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
   } catch (err) {
-    console.error('announce error:', err);
-    return jsonResponse({ error: '服务器错误: ' + err.message }, 500);
+    res.writeHead(500, { ...CORS, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '服务器错误: ' + err.message }));
   }
 };
