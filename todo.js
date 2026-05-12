@@ -418,22 +418,34 @@ function requestNotificationPermission() {
   });
 }
 
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
 function checkReminders() {
-  if (Notification.permission !== 'granted') return;
+  if (Notification.permission !== 'granted') {
+    console.log('[reminder] skipped, permission:', Notification.permission);
+    return;
+  }
   var d = new Date();
   var now = d.getFullYear() + '-' +
-    String(d.getMonth() + 1).padStart(2, '0') + '-' +
-    String(d.getDate()).padStart(2, '0') + 'T' +
-    String(d.getHours()).padStart(2, '0') + ':' +
-    String(d.getMinutes()).padStart(2, '0');
+    pad2(d.getMonth() + 1) + '-' +
+    pad2(d.getDate()) + 'T' +
+    pad2(d.getHours()) + ':' +
+    pad2(d.getMinutes());
+  console.log('[reminder] checking at', now, 'todos count:', todos.length);
   todos.forEach(function(t) {
     if (t.reminder && !t.reminderNotified && t.reminder.slice(0,16) === now && !t.completed) {
-      new Notification('⏰ 待办提醒', {
-        body: t.title,
-        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">📋</text></svg>',
-        tag: 'todo-reminder-' + t.id,
-        requireInteraction: true
-      });
+      console.log('[reminder] MATCH for', t.title, 'reminder:', t.reminder);
+      try {
+        new Notification('⏰ 待办提醒', {
+          body: t.title,
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">📋</text></svg>',
+          tag: 'todo-reminder-' + t.id,
+          requireInteraction: true
+        });
+        console.log('[reminder] notification sent for', t.title);
+      } catch(e) {
+        console.error('[reminder] notification failed:', e);
+      }
       t.reminderNotified = true;
       saveData();
     }
