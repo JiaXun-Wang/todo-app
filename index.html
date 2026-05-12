@@ -1596,6 +1596,7 @@ function generateId() { return Date.now().toString(36) + Math.random().toString(
 
 function openAddModal() {
   editingId = null;
+  modalSubtasks = [];
   document.getElementById('modalTitle').textContent = '新建待办';
   document.getElementById('todoTitle').value = '';
   document.getElementById('todoPriority').value = 'medium';
@@ -1605,7 +1606,6 @@ function openAddModal() {
   document.getElementById('todoTags').value = '';
   document.getElementById('todoRepeat').value = '';
   document.getElementById('todoNote').value = '';
-  document.getElementById('subtaskInput').style.display = 'none';
   document.getElementById('subtaskList').innerHTML = '';
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
@@ -1624,8 +1624,8 @@ function openEditModal(id) {
   document.getElementById('todoTags').value = (t.tags || []).join(', ');
   document.getElementById('todoRepeat').value = t.repeat || '';
   document.getElementById('todoNote').value = t.note || '';
-  renderSubtasksInModal(t.subtasks || []);
-  document.getElementById('subtaskInput').style.display = 'block';
+  modalSubtasks = (t.subtasks || []).map(s => ({...s}));
+  renderSubtasksInModal(modalSubtasks);
   document.getElementById('todoModal').style.display = 'flex';
   document.getElementById('todoTitle').focus();
 }
@@ -1655,6 +1655,7 @@ function saveTodo() {
       t.dueDate = dueDate || null; t.reminder = reminder || null;
       t.category = category || null; t.tags = tags;
       t.repeat = repeat || null; t.note = note || null;
+      t.subtasks = modalSubtasks;
     }
   } else {
     const maxOrder = todos.reduce((max, t) => Math.max(max, t.order ?? 0), 0);
@@ -1663,7 +1664,7 @@ function saveTodo() {
       dueDate: dueDate || null, reminder: reminder || null,
       category: category || null, tags, order: maxOrder + 1,
       repeat: repeat || null, note: note || null,
-      subtasks: [],
+      subtasks: modalSubtasks,
       createdAt: new Date().toISOString()
     });
   }
@@ -2134,15 +2135,20 @@ function setupConnection(conn) {
     updateGameUI();
   }
 
-  conn.on('open', () => {
-    // Send our info to the other peer
+  function sendJoinInfo() {
     conn.send({ type: 'join_info', name: playerName, peerId: myPeerId, isHost: isRoomHost });
-    // Host sends current room state to the new peer
     if (isRoomHost) {
       conn.send({ type: 'player_list', players, roomName });
       if (roomName) conn.send({ type: 'room_name', roomName });
     }
-  });
+  }
+
+  // Handle race condition: connection may already be open
+  if (conn.open) {
+    sendJoinInfo();
+  } else {
+    conn.on('open', sendJoinInfo);
+  }
 
   conn.on('data', (data) => {
     handleGameData(data, conn.peer);
@@ -2172,6 +2178,15 @@ function broadcast(data) {
       conn.send(data);
     } catch(e) {
       console.error('[broadcast] Send failed for', data.type, e);
+    }
+  });
+}
+
+function broadcastExcept(data, exceptPeerId) {
+  Object.entries(connections).forEach(([peerId, conn]) => {
+    if (peerId === exceptPeerId) return;
+    try { conn.send(data); } catch(e) {
+      console.error('[broadcastExcept] Send failed for', data.type, e);
     }
   });
 }
@@ -2258,9 +2273,12 @@ function handleGameData(data, fromPeerId) {
 
     case 'draw':
       handleRemoteDraw(data);
+      if (isRoomHost) broadcastExcept(data, fromPeerId);
       break;
 
     case 'guess':
+      // Ignore relay of own message
+      if (data.peerId === myPeerId) break;
       console.log('[guess] from', data.name, 'correct:', data.correct, 'isRoomHost:', isRoomHost, 'roundEnded:', roundEnded);
       if (data.correct) {
         guessedPeers.add(data.peerId);
@@ -2274,6 +2292,18 @@ function handleGameData(data, fromPeerId) {
         }
       } else {
         addChatMessage('normal', data.name + ': ' + data.text);
+      }
+      // Host relays guess to all other guests
+      if (isRoomHost) broadcastExcept(data, fromPeerId);
+      break;
+
+    case 'check_end':
+      // Guest asks host to verify round end
+      if (isRoomHost && !roundEnded) {
+        (data.guessedPeers || []).forEach(pid => guessedPeers.add(pid));
+        if (guessedPeers.size >= Object.keys(players).length - 1) {
+          endRound();
+        }
       }
       break;
 
@@ -2299,7 +2329,9 @@ function handleGameData(data, fromPeerId) {
       break;
 
     case 'chat':
+      if (data.peerId === myPeerId) break;
       addChatMessage('normal', data.name + ': ' + data.text);
+      if (isRoomHost) broadcastExcept(data, fromPeerId);
       break;
   }
 }
@@ -2737,7 +2769,7 @@ function sendGuess() {
   input.focus();
 
   if (!gameActive) {
-    broadcast({ type: 'chat', name: playerName, text });
+    broadcast({ type: 'chat', name: playerName, peerId: myPeerId, text });
     addChatMessage('normal', '你: ' + text);
     return;
   }
@@ -2779,7 +2811,8 @@ function sendGuess() {
       console.log('[sendGuess] Host guessed correctly, ending round');
       endRound();
     } else if (!isRoomHost && guessedPeers.size >= nonDrawerCount) {
-      console.log('[sendGuess] Guest guessed, waiting for host to end round');
+      // Actively ask host to verify round end (fallback in case host didn't receive guess)
+      broadcast({ type: 'check_end', guessedPeers: [...guessedPeers] });
     }
   } else {
     broadcast({ type: 'guess', name: playerName, peerId: myPeerId, text, correct: false });
