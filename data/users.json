@@ -11,7 +11,7 @@
       {
         "id": "mp2o3dztpyw06",
         "title": "111",
-        "completed": false,
+        "completed": true,
         "priority": "medium",
         "dueDate": "2026-05-12",
         "reminder": "2026-05-12T21:30",
@@ -25,7 +25,7 @@
       }
     ],
     "categories": [],
-    "lastSync": "2026-05-12T13:29:32.405Z"
+    "lastSync": "2026-05-12T13:37:52.630Z"
   },
   {
     "name": "test",
