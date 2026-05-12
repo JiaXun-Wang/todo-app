@@ -23,5 +23,13 @@
     "status": "approved",
     "token": null,
     "createdAt": "2026-05-12T05:59:29.079Z"
+  },
+  {
+    "name": "蛋卷大侠",
+    "password": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+    "role": "user",
+    "status": "pending",
+    "token": null,
+    "createdAt": "2026-05-12T06:11:50.597Z"
   }
 ]
