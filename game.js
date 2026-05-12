@@ -394,6 +394,7 @@ function broadcastExcept(data, exceptPeerId) {
 function handleGameData(data, fromPeerId) {
   switch (data.type) {
     case 'join_info':
+      joinSuccessFlag = true;
       // Update or create player entry
       const prevName = players[data.peerId]?.name || '';
       players[data.peerId] = {
@@ -409,6 +410,7 @@ function handleGameData(data, fromPeerId) {
       break;
 
     case 'player_list':
+      joinSuccessFlag = true;
       players = data.players;
       if (data.roomName) roomName = data.roomName;
       updateGameUI();
@@ -681,12 +683,14 @@ function createRoom() {
 
 let joinRetryCount = 0;
 const MAX_JOIN_RETRIES = 3;
+let joinSuccessFlag = false;
 
 function doJoinRoom() {
   const code = roomId;
   if (!code || !peer || peer.destroyed) return;
 
   addChatMessage('system', '正在连接房间... (尝试 ' + (joinRetryCount + 1) + '/' + MAX_JOIN_RETRIES + ')');
+  joinSuccessFlag = false;
 
   const conn = peer.connect(code, {
     reliable: true,
@@ -694,20 +698,22 @@ function doJoinRoom() {
   });
   setupConnection(conn);
 
-  // Check if connection succeeded
-  setTimeout(() => {
-    if (Object.keys(connections).length === 0) {
+  // Check if connection succeeded (received data from host)
+  setTimeout(function() {
+    if (!joinSuccessFlag) {
+      // Remove failed connection
+      try { conn.close(); } catch(e) {}
+      delete connections[conn.peer];
       joinRetryCount++;
       if (joinRetryCount < MAX_JOIN_RETRIES) {
-        addChatMessage('system', '连接失败，正在重试...');
-        // Destroy old peer and create a new one for fresh ICE candidates
+        addChatMessage('system', '连接超时，正在重试...');
         if (peer) { peer.destroy(); peer = null; }
         myPeerId = null;
         initPeer();
-        const waitForPeer = setInterval(() => {
+        var waitForPeer = setInterval(function() {
           if (myPeerId) {
             clearInterval(waitForPeer);
-            setTimeout(() => doJoinRoom(), 500);
+            setTimeout(function() { doJoinRoom(); }, 500);
           }
         }, 200);
       } else {
@@ -715,7 +721,7 @@ function doJoinRoom() {
         addChatMessage('system', '1. 房间号是否正确');
         addChatMessage('system', '2. 房主是否在线');
         addChatMessage('system', '3. 双方网络是否正常');
-        addChatMessage('system', '💡 提示：房主和客人都尝试关闭并重新创建/加入房间');
+        addChatMessage('system', '💡 提示：房主和客人都尝试点击刷新按钮');
       }
     }
   }, 10000);
@@ -748,11 +754,21 @@ function joinRoom() {
 }
 
 function reconnectRoom() {
-  // Re-establish connections without leaving the room
   if (isRoomHost) {
-    // Host: just wait for reconnections. Player list stays.
-    addChatMessage('system', '等待玩家重新连接...');
-    updateGameUI();
+    // Host: re-initialize peer to refresh signaling, keep same room ID
+    addChatMessage('system', '刷新房间连接...');
+    Object.values(connections).forEach(c => { try { c.close(); } catch(e){} });
+    connections = {};
+    if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
+    myPeerId = null;
+    initPeer(roomId);
+    var checkPeer = setInterval(function() {
+      if (myPeerId) {
+        clearInterval(checkPeer);
+        addChatMessage('system', '房间已刷新，等待玩家加入...');
+        updateGameUI();
+      }
+    }, 200);
   } else {
     // Guest: try to reconnect to host
     if (!roomId) return;
