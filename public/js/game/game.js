@@ -1339,26 +1339,22 @@ async function refreshRoomList() {
 }
 
 function renderRoomList(rooms) {
-  const container = document.getElementById('roomListContainer');
+  var container = document.getElementById('roomListContainer');
   if (!container) return;
   if (rooms.length === 0) {
     container.innerHTML = '<div class="room-empty">暂无活跃房间，快来创建一个吧~</div>';
     return;
   }
-  container.innerHTML = rooms.map(r => {
-    const isMyRoom = roomId && r.id === roomId;
-    return `<div class="room-card">
-      <div class="room-card-info">
-        <div class="room-card-name">${escapeHtml(r.name)}</div>
-        <div class="room-card-meta">房主: ${escapeHtml(r.hostName)}</div>
-      </div>
-      <span class="room-card-players">👤 ${r.playerCount || 0}</span>
-      <div class="room-card-actions">
-        ${isMyRoom
-          ? '<span style="font-size:12px;color:var(--accent);font-weight:500;">当前房间 ✓</span>'
-          : '<button class="btn btn-primary btn-sm" onclick="requestJoinRoom(\'' + escapeHtml(r.id) + '\',\'' + escapeHtml(r.name) + '\')">申请加入</button>'}
-      </div>
-    </div>`;
+  container.innerHTML = rooms.map(function(r) {
+    var isMyRoom = roomId && r.id === roomId;
+    var isMyOwnedRoom = !isMyRoom && currentUser && r.hostName === currentUser.name;
+    if (isMyRoom) {
+      return '<div class="room-card"><div class="room-card-info"><div class="room-card-name">' + escapeHtml(r.name) + '</div><div class="room-card-meta">房主: ' + escapeHtml(r.hostName) + '</div></div><span class="room-card-players">👤 ' + (r.playerCount || 0) + '</span><div class="room-card-actions"><span style="font-size:12px;color:var(--accent);font-weight:500;">当前房间 ✓</span></div></div>';
+    }
+    if (isMyOwnedRoom) {
+      return '<div class="room-card"><div class="room-card-info"><div class="room-card-name">' + escapeHtml(r.name) + ' <span style="font-size:11px;color:var(--accent);">(我的房间)</span></div><div class="room-card-meta">房主: ' + escapeHtml(r.hostName) + '</div></div><span class="room-card-players">👤 ' + (r.playerCount || 0) + '</span><div class="room-card-actions"><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'joinRoomCode\').value=\'' + escapeHtml(r.id) + '\';document.getElementById(\'createRoomCode\').value=\'' + escapeHtml(r.id) + '\';document.getElementById(\'gameNickname\').value=\'' + escapeHtml(currentUser.name) + '\';createRoom();">重新主持</button></div></div>';
+    }
+    return '<div class="room-card"><div class="room-card-info"><div class="room-card-name">' + escapeHtml(r.name) + '</div><div class="room-card-meta">房主: ' + escapeHtml(r.hostName) + '</div></div><span class="room-card-players">👤 ' + (r.playerCount || 0) + '</span><div class="room-card-actions"><button class="btn btn-primary btn-sm" onclick="requestJoinRoom(\'' + escapeHtml(r.id) + '\',\'' + escapeHtml(r.name) + '\')">申请加入</button></div></div>';
   }).join('');
 }
 
