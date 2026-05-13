@@ -1,7 +1,7 @@
 {
-  "name": "Todo + 你画我猜",
-  "short_name": "Todo画猜",
-  "description": "待办事项管理与你画我猜游戏",
+  "name": "My Space",
+  "short_name": "My Space",
+  "description": "个人工作台 - 待办事项与你画我猜",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f5f6f8",

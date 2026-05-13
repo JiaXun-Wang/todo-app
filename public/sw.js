@@ -1,20 +1,20 @@
-var CACHE_NAME = 'todo-app-v1';
+var CACHE_NAME = 'my-space-v1';
 var STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/style.css',
-  '/globals.js',
-  '/auth.js',
-  '/admin.js',
-  '/theme.js',
-  '/cloud-sync.js',
-  '/subtasks.js',
-  '/announcements.js',
-  '/change-password.js',
-  '/todo.js',
-  '/game.js',
-  '/profile.js',
-  '/init.js',
+  '/css/style.css',
+  '/js/core/globals.js',
+  '/js/core/auth.js',
+  '/js/admin/admin.js',
+  '/js/shared/theme.js',
+  '/js/shared/cloud-sync.js',
+  '/js/shared/subtasks.js',
+  '/js/shared/announcements.js',
+  '/js/shared/change-password.js',
+  '/js/todo/todo.js',
+  '/js/game/game.js',
+  '/js/profile/profile.js',
+  '/js/core/init.js',
   '/manifest.json'
 ];
 
