@@ -69,7 +69,10 @@ module.exports = async (req, res) => {
             rooms[existingIdx].status = 'active';
             rooms[existingIdx].lastHeartbeat = new Date().toISOString();
             // Keep existing players list (they'll reconnect via PeerJS)
-            if (!rooms[existingIdx].players.find(p => p.name === hostName)) {
+            var hostEntry = rooms[existingIdx].players.find(p => p.name === hostName);
+            if (hostEntry) {
+              hostEntry.peerId = hostPeerId || '';
+            } else {
               rooms[existingIdx].players.push({ name: hostName, peerId: hostPeerId || '' });
             }
           } else {
