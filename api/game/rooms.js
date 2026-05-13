@@ -55,20 +55,39 @@ module.exports = async (req, res) => {
             res.end(JSON.stringify({ error: '缺少参数' }));
             return;
           }
-          rooms.push({
-            id: roomId,
-            name: name || hostName + '的房间',
-            hostName: userName,
-            hostPeerId: hostPeerId || '',
-            status: 'active',
-            players: [{ name: hostName, peerId: hostPeerId || '' }],
-            joinRequests: [],
-            createdAt: new Date().toISOString(),
-            lastHeartbeat: new Date().toISOString()
-          });
+          const existingIdx = rooms.findIndex(r => r.id === roomId);
+          if (existingIdx >= 0) {
+            // Room with this ID already exists — verify ownership
+            if (rooms[existingIdx].hostName !== userName) {
+              res.writeHead(403, { ...corsHeaders(), 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: '房间号已被占用' }));
+              return;
+            }
+            // Host is reconnecting — update the existing room entry
+            rooms[existingIdx].name = name || rooms[existingIdx].name;
+            rooms[existingIdx].hostPeerId = hostPeerId || '';
+            rooms[existingIdx].status = 'active';
+            rooms[existingIdx].lastHeartbeat = new Date().toISOString();
+            // Keep existing players list (they'll reconnect via PeerJS)
+            if (!rooms[existingIdx].players.find(p => p.name === hostName)) {
+              rooms[existingIdx].players.push({ name: hostName, peerId: hostPeerId || '' });
+            }
+          } else {
+            rooms.push({
+              id: roomId,
+              name: name || hostName + '的房间',
+              hostName: userName,
+              hostPeerId: hostPeerId || '',
+              status: 'active',
+              players: [{ name: hostName, peerId: hostPeerId || '' }],
+              joinRequests: [],
+              createdAt: new Date().toISOString(),
+              lastHeartbeat: new Date().toISOString()
+            });
+          }
           await writeRooms(rooms, sha);
           res.writeHead(200, { ...corsHeaders(), 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ message: '房间已创建' }));
+          res.end(JSON.stringify({ message: '房间已创建', resumed: existingIdx >= 0 }));
           return;
         }
 
@@ -222,9 +241,9 @@ module.exports = async (req, res) => {
             res.end(JSON.stringify({ error: '房间不存在' }));
             return;
           }
-          if (room.hostName !== userName) {
+          if (room.hostName !== userName && userRole !== 'admin') {
             res.writeHead(403, { ...corsHeaders(), 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: '只有房主可以关闭房间' }));
+            res.end(JSON.stringify({ error: '只有房主或管理员可以关闭房间' }));
             return;
           }
           room.status = 'closed';
