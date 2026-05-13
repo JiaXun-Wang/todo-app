@@ -336,12 +336,15 @@ function setupConnection(conn) {
   function sendJoinInfo() {
     conn.send({ type: 'join_info', name: playerName, peerId: myPeerId, isHost: isRoomHost });
     if (isRoomHost) {
-      conn.send({ type: 'player_list', players, roomName });
-      if (roomName) conn.send({ type: 'room_name', roomName });
+      conn.send({ type: 'player_list', players: players, roomName: roomName });
+      if (roomName) conn.send({ type: 'room_name', roomName: roomName });
+      // If game is active, sync full game state to the new joiner
+      if (gameActive) {
+        sendGameStateToPeer(conn);
+      }
     }
   }
 
-  // Handle race condition: connection may already be open
   if (conn.open) {
     sendJoinInfo();
   } else {
@@ -363,6 +366,34 @@ function setupConnection(conn) {
     broadcastPlayerList();
     updateGameUI();
   });
+}
+
+function sendGameStateToPeer(conn) {
+  var canvasData = canvas.toDataURL('image/png');
+  var currentDrawerId = Object.keys(players).find(function(pid) { return players[pid].isDrawer; });
+
+  var stateData = {
+    type: 'game_state_sync',
+    gameActive: gameActive,
+    currentRound: currentRound,
+    totalRounds: totalRounds,
+    roundEnded: roundEnded,
+    roundTimeLeft: roundTimeLeft,
+    players: players,
+    drawerPeerId: currentDrawerId,
+    guessedPeers: [...guessedPeers],
+    canvasData: canvasData
+  };
+
+  if (currentDrawerId === conn.peer) {
+    stateData.word = currentWord;
+  } else {
+    stateData.wordLength = currentWord.length;
+  }
+
+  try { conn.send(stateData); } catch(e) {
+    console.error('[sendGameStateToPeer] failed:', e);
+  }
 }
 
 function broadcast(data) {
@@ -425,6 +456,40 @@ function handleGameData(data, fromPeerId) {
     case 'room_name':
       roomName = data.roomName;
       updateGameUI();
+      break;
+
+    case 'game_state_sync':
+      gameActive = data.gameActive;
+      currentRound = data.currentRound || 0;
+      totalRounds = data.totalRounds || 0;
+      roundEnded = data.roundEnded;
+      roundTimeLeft = data.roundTimeLeft || 80;
+      players = data.players;
+      guessedPeers = new Set(data.guessedPeers || []);
+      if (data.word) {
+        currentWord = data.word;
+        document.getElementById('wordDisplay').textContent = '🎨 你的词: ' + currentWord;
+      } else {
+        currentWord = '';
+        document.getElementById('wordDisplay').textContent = '🔍 提示: ' + '_ '.repeat(data.wordLength || 0).trim();
+      }
+      myTurn = data.drawerPeerId === myPeerId;
+      if (data.canvasData) {
+        var img = new Image();
+        img.onload = function() {
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = data.canvasData;
+      }
+      document.getElementById('gamePlayArea').style.display = 'block';
+      document.getElementById('roundDisplay').textContent = totalRounds > 0
+        ? '第 ' + (currentRound + 1) + '/' + totalRounds + ' 局'
+        : '第 ' + (currentRound + 1) + ' 局';
+      updateTimerDisplay();
+      updateGameUI();
+      if (!roundEnded && roundTimeLeft > 0) {
+        startRoundTimer(roundTimeLeft);
+      }
       break;
 
     case 'start_game':
@@ -768,9 +833,8 @@ function joinRoom() {
 
 function reconnectRoom() {
   if (isRoomHost) {
-    // Host: re-initialize peer to refresh signaling, keep same room ID
     addChatMessage('system', '刷新房间连接...');
-    Object.values(connections).forEach(c => { try { c.close(); } catch(e){} });
+    Object.values(connections).forEach(function(c) { try { c.close(); } catch(e){} });
     connections = {};
     if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
     myPeerId = null;
@@ -778,23 +842,25 @@ function reconnectRoom() {
     var checkPeer = setInterval(function() {
       if (myPeerId) {
         clearInterval(checkPeer);
-        addChatMessage('system', '房间已刷新，等待玩家加入...');
+        // Re-register on server (server now does upsert)
+        apiGameRooms({ action: 'create', roomId: roomId, name: roomName, hostName: playerName, hostPeerId: myPeerId }).then(function() {
+          startHostPolling();
+          startHeartbeat();
+          addChatMessage('system', '房间已刷新，等待玩家重新连接...');
+        });
         updateGameUI();
       }
     }, 200);
   } else {
-    // Guest: try to reconnect to host
     if (!roomId) return;
     addChatMessage('system', '重新连接到房间...');
     joinRetryCount = 0;
-    // Close existing connections
-    Object.values(connections).forEach(c => { try { c.close(); } catch(e){} });
+    Object.values(connections).forEach(function(c) { try { c.close(); } catch(e){} });
     connections = {};
-    // Re-init peer and connect
     if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
     myPeerId = null;
     initPeer();
-    const waitForPeer = setInterval(() => {
+    var waitForPeer = setInterval(function() {
       if (myPeerId) {
         clearInterval(waitForPeer);
         doJoinRoom();
@@ -804,14 +870,17 @@ function reconnectRoom() {
 }
 
 function leaveRoom() {
-  // Host transfer: pick the first remaining player as new host
   if (isRoomHost) {
-    const otherIds = Object.keys(players).filter(pid => pid !== myPeerId);
+    var otherIds = Object.keys(players).filter(function(pid) { return pid !== myPeerId; });
     if (otherIds.length > 0 && gameActive) {
-      const newHostId = otherIds[0];
-      broadcast({ type: 'host_transfer', newHostId, players, currentWord, currentRound, totalRounds, roundTimeLeft, gameActive, roundEnded, guessedPeers: [...guessedPeers] });
+      var newHostId = otherIds[0];
+      var canvasData = canvas.toDataURL('image/png');
+      broadcast({ type: 'host_transfer', newHostId: newHostId, players: players,
+        currentWord: currentWord, currentRound: currentRound, totalRounds: totalRounds,
+        roundTimeLeft: roundTimeLeft, gameActive: gameActive, roundEnded: roundEnded,
+        guessedPeers: [...guessedPeers], canvasData: canvasData });
     } else if (gameActive) {
-      broadcast({ type: 'game_over', players, reason: '房主离开' });
+      broadcast({ type: 'game_over', players: players, reason: '房主离开' });
     }
   }
   broadcast({ type: 'player_leave', peerId: myPeerId });
@@ -861,12 +930,10 @@ function handleHostTransfer(data) {
     isRoomHost = true;
     document.getElementById('startGameBtn').style.display = 'block';
     addChatMessage('system', '🎩 你成为了新房主！');
-    // Register as new host on server
-    apiGameRooms({ action: 'takeover', roomId, hostName: playerName }).then(() => {
+    apiGameRooms({ action: 'takeover', roomId: roomId, hostName: playerName }).then(function() {
       startHostPolling();
       startHeartbeat();
     });
-    // Restore game state
     if (data.gameActive) {
       players = data.players;
       currentWord = data.currentWord;
@@ -877,7 +944,12 @@ function handleHostTransfer(data) {
       roundEnded = data.roundEnded;
       guessedPeers = new Set(data.guessedPeers || []);
       document.getElementById('gamePlayArea').style.display = 'block';
-      myTurn = players[myPeerId]?.isDrawer || false;
+      myTurn = players[myPeerId] ? players[myPeerId].isDrawer : false;
+      if (data.canvasData) {
+        var img = new Image();
+        img.onload = function() { ctx.drawImage(img, 0, 0); };
+        img.src = data.canvasData;
+      }
       updateGameUI();
       updateTimerDisplay();
       if (!roundEnded) {
@@ -885,9 +957,14 @@ function handleHostTransfer(data) {
       }
     }
   } else {
-    addChatMessage('system', '房主已离开，' + (players[data.newHostId]?.name || '另一玩家') + ' 成为新房主');
+    addChatMessage('system', '房主已离开，' + (players[data.newHostId] ? players[data.newHostId].name : '另一玩家') + ' 成为新房主');
     if (data.gameActive) {
       players = data.players;
+      if (data.canvasData) {
+        var img = new Image();
+        img.onload = function() { ctx.drawImage(img, 0, 0); };
+        img.src = data.canvasData;
+      }
       updateGameUI();
     }
   }
