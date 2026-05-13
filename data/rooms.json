@@ -1,0 +1,18 @@
+[
+  {
+    "id": "111",
+    "name": "OK",
+    "hostName": "admin",
+    "hostPeerId": "111",
+    "status": "active",
+    "players": [
+      {
+        "name": "AA",
+        "peerId": "111"
+      }
+    ],
+    "joinRequests": [],
+    "createdAt": "2026-05-13T06:38:24.502Z",
+    "lastHeartbeat": "2026-05-13T06:38:24.502Z"
+  }
+]
