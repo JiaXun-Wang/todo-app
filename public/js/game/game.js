@@ -90,9 +90,9 @@ function saveCanvasState() {
 
 function undoDraw() {
   if (drawHistory.length > 0) {
-    const state = drawHistory.pop();
+    var state = drawHistory.pop();
     ctx.putImageData(state, 0, 0);
-    if (myTurn) sendDrawData({ act: 'undo', imageData: state });
+    if (myTurn) sendDrawData({ act: 'undo' });
   }
 }
 
@@ -203,25 +203,24 @@ function clearCanvas(send = true) {
   if (send && myTurn) sendDrawData({ act: 'clear' });
 }
 
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3), 16);
-  const g = parseInt(hex.slice(3,5), 16);
-  const b = parseInt(hex.slice(5,7), 16);
-  return { r, g, b };
-}
-
 function floodFill() {
   if (!myTurn) return;
   saveCanvasState();
+  var cx = Math.floor(canvas.width / 2);
+  var cy = Math.floor(canvas.height / 2);
+  execFloodFill(cx, cy, drawColor);
+  sendDrawData({ act: 'fill', x: cx, y: cy, c: drawColor });
+}
+
+function execFloodFill(cx, cy, fillColor) {
   var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   var data = imageData.data;
   var w = canvas.width, h = canvas.height;
-  var cx = Math.floor(w / 2), cy = Math.floor(h / 2);
   var idx = (cy * w + cx) * 4;
   var targetR = data[idx], targetG = data[idx + 1], targetB = data[idx + 2], targetA = data[idx + 3];
-  var fillR = parseInt(drawColor.slice(1, 3), 16);
-  var fillG = parseInt(drawColor.slice(3, 5), 16);
-  var fillB = parseInt(drawColor.slice(5, 7), 16);
+  var fillR = parseInt(fillColor.slice(1, 3), 16);
+  var fillG = parseInt(fillColor.slice(3, 5), 16);
+  var fillB = parseInt(fillColor.slice(5, 7), 16);
   if (fillR === targetR && fillG === targetG && fillB === targetB) return;
   var stack = [[cx, cy]];
   var visited = new Uint8Array(w * h);
@@ -240,7 +239,6 @@ function floodFill() {
     if (y < h - 1) stack.push([x, y + 1]);
   }
   ctx.putImageData(imageData, 0, 0);
-  sendDrawData({ act: 'fill_image', imageData: imageData });
 }
 
 // Drawing tools UI
@@ -442,25 +440,10 @@ function handleGameData(data, fromPeerId) {
       break;
 
     case 'new_round':
-      currentWord = data.word;
-      players = data.players;
-      myTurn = data.drawerPeerId === myPeerId;
-      roundTimeLeft = data.roundTime;
-      currentRound = data.currentRound || 0;
-      totalRounds = data.totalRounds || 0;
-      roundEnded = false;
-      guessedPeers.clear();
-      document.getElementById('wordDisplay').textContent = myTurn
-        ? '🎨 你的词: ' + currentWord
-        : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
-      document.getElementById('roundDisplay').textContent = totalRounds > 0
-        ? '第 ' + (currentRound + 1) + '/' + totalRounds + ' 局'
-        : '第 ' + (currentRound + 1) + ' 局';
-      clearCanvas();
-      updateGameUI();
+      processNewRoundData(data);
       startRoundTimer(data.roundTime);
-      if (myTurn) {
-        addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + currentWord);
+      if (data.word) {
+        addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + data.word);
       } else {
         addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | ' + data.drawerName + ' 正在画画，快来猜！');
       }
@@ -478,39 +461,59 @@ function handleGameData(data, fromPeerId) {
       break;
 
     case 'draw':
-      handleRemoteDraw(data);
-      if (isRoomHost) broadcastExcept(data, fromPeerId);
+      if (isRoomHost) {
+        var currentDrawer = Object.keys(players).find(function(pid) { return players[pid].isDrawer; });
+        if (fromPeerId !== currentDrawer) break;
+        handleRemoteDraw(data);
+        broadcastExcept(data, fromPeerId);
+      } else {
+        handleRemoteDraw(data);
+      }
       break;
 
     case 'guess':
-      // Ignore relay of own message
-      if (data.peerId === myPeerId) break;
-      console.log('[guess] from', data.name, 'correct:', data.correct, 'isRoomHost:', isRoomHost, 'roundEnded:', roundEnded);
+      if (fromPeerId === myPeerId) break;
+      if (isRoomHost) {
+        var isCorrect = !roundEnded && data.text === currentWord;
+        if (isCorrect && !guessedPeers.has(fromPeerId)) {
+          guessedPeers.add(fromPeerId);
+          var points = 10 + Math.max(0, roundTimeLeft);
+          players[fromPeerId].score = (players[fromPeerId].score || 0) + points;
+          var drawerId = Object.keys(players).find(function(pid) { return players[pid].isDrawer; });
+          if (drawerId && players[drawerId]) {
+            players[drawerId].score = (players[drawerId].score || 0) + 5;
+          }
+          broadcast({
+            type: 'guess_result', name: data.name, peerId: fromPeerId,
+            correct: true, points: points, players: players
+          });
+          addChatMessage('correct', data.name + ' 猜对了！🎉 (+' + points + '分)');
+          updateGameUI();
+          if (!roundEnded && guessedPeers.size >= Object.keys(players).length - 1) {
+            endRound();
+          }
+        } else if (!isCorrect) {
+          addChatMessage('normal', data.name + ': ' + data.text);
+          broadcastExcept({ type: 'guess_chat', name: data.name, peerId: fromPeerId, text: data.text }, fromPeerId);
+        }
+      }
+      break;
+
+    case 'guess_result':
       if (data.correct) {
         guessedPeers.add(data.peerId);
         players = data.players;
         addChatMessage('correct', data.name + ' 猜对了！🎉 (+' + data.points + '分)');
         updateGameUI();
-        console.log('[guess] guessedPeers.size:', guessedPeers.size, 'nonDrawers:', Object.keys(players).length - 1);
         if (isRoomHost && !roundEnded && guessedPeers.size >= Object.keys(players).length - 1) {
-          console.log('[guess] Triggering endRound from host');
           endRound();
         }
-      } else {
-        addChatMessage('normal', data.name + ': ' + data.text);
       }
-      // Host relays guess to all other guests
-      if (isRoomHost) broadcastExcept(data, fromPeerId);
       break;
 
-    case 'check_end':
-      // Guest asks host to verify round end
-      if (isRoomHost && !roundEnded) {
-        (data.guessedPeers || []).forEach(pid => guessedPeers.add(pid));
-        if (guessedPeers.size >= Object.keys(players).length - 1) {
-          endRound();
-        }
-      }
+    case 'guess_chat':
+      if (data.peerId === myPeerId) break;
+      addChatMessage('normal', data.name + ': ' + data.text);
       break;
 
     case 'game_over':
@@ -577,10 +580,12 @@ function handleRemoteDraw(data) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       break;
     case 'undo':
-      ctx.putImageData(data.imageData, 0, 0);
+      if (drawHistory.length > 0) {
+        ctx.putImageData(drawHistory.pop(), 0, 0);
+      }
       break;
-    case 'fill_image':
-      ctx.putImageData(data.imageData, 0, 0);
+    case 'fill':
+      execFloodFill(data.x, data.y, data.c);
       break;
   }
 }
@@ -923,39 +928,71 @@ function startGame() {
 function newRound() {
   console.log('[newRound] currentRound:', currentRound, 'players:', Object.keys(players).length, 'gameActive:', gameActive);
   roundEnded = false;
-  const playerIds = Object.keys(players);
-  const drawerIdx = currentRound % playerIds.length;
-  const drawerPeerId = playerIds[drawerIdx];
+  var playerIds = Object.keys(players);
+  var drawerIdx = currentRound % playerIds.length;
+  var drawerPeerId = playerIds[drawerIdx];
   console.log('[newRound] drawerIdx:', drawerIdx, 'drawer:', players[drawerPeerId]?.name);
 
-  playerIds.forEach(pid => { players[pid].isDrawer = (pid === drawerPeerId); });
+  playerIds.forEach(function(pid) { players[pid].isDrawer = (pid === drawerPeerId); });
   guessedPeers.clear();
 
   currentWord = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
-  const roundTime = 80;
+  var roundTime = 80;
 
-  broadcast({
-    type: 'new_round', word: currentWord, players,
-    drawerPeerId, drawerName: players[drawerPeerId].name,
-    roundTime, currentRound, totalRounds
-  });
+  var fullData = {
+    type: 'new_round', word: currentWord, players: players,
+    drawerPeerId: drawerPeerId, drawerName: players[drawerPeerId].name,
+    roundTime: roundTime, currentRound: currentRound, totalRounds: totalRounds
+  };
+  var blindData = {
+    type: 'new_round', wordLength: currentWord.length, players: players,
+    drawerPeerId: drawerPeerId, drawerName: players[drawerPeerId].name,
+    roundTime: roundTime, currentRound: currentRound, totalRounds: totalRounds
+  };
 
-  myTurn = drawerPeerId === myPeerId;
-  document.getElementById('wordDisplay').textContent = myTurn
-    ? '🎨 你的词: ' + currentWord
-    : '🔍 提示: ' + '_ '.repeat(currentWord.length).trim();
+  if (isRoomHost) {
+    // Host always knows the word to validate guesses
+    processNewRoundData(fullData);
+    if (drawerPeerId === myPeerId) {
+      // Host is drawer — send blind to all guests
+      broadcast(blindData);
+    } else {
+      // Guest is drawer — send full word only to drawer
+      var dc = connections[drawerPeerId];
+      if (dc) { try { dc.send(fullData); } catch(e) { console.error('send full to drawer failed', e); } }
+      broadcastExcept(blindData, drawerPeerId);
+    }
+  }
+
+  updateGameUI();
+  startRoundTimer(roundTime);
+
+  if (drawerPeerId === myPeerId) {
+    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + currentWord);
+  } else {
+    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | ' + players[drawerPeerId].name + ' 正在画画，快来猜！');
+  }
+}
+
+function processNewRoundData(data) {
+  if (data.word) {
+    currentWord = data.word;
+  }
+  players = data.players;
+  myTurn = data.drawerPeerId === myPeerId;
+  roundTimeLeft = data.roundTime;
+  currentRound = data.currentRound || 0;
+  totalRounds = data.totalRounds || 0;
+  roundEnded = false;
+  guessedPeers.clear();
+  document.getElementById('wordDisplay').textContent = data.word
+    ? '🎨 你的词: ' + data.word
+    : '🔍 提示: ' + '_ '.repeat(data.wordLength || 0).trim();
   document.getElementById('roundDisplay').textContent = totalRounds > 0
     ? '第 ' + (currentRound + 1) + '/' + totalRounds + ' 局'
     : '第 ' + (currentRound + 1) + ' 局';
   clearCanvas();
   updateGameUI();
-  startRoundTimer(roundTime);
-
-  if (myTurn) {
-    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | 轮到你画画！词语: ' + currentWord);
-  } else {
-    addChatMessage('system', '第 ' + (currentRound + 1) + ' 局 | ' + players[drawerPeerId].name + ' 正在画画，快来猜！');
-  }
 }
 
 function endRound() {
@@ -994,14 +1031,14 @@ function endRound() {
 }
 
 function sendGuess() {
-  const input = document.getElementById('chatInput');
-  const text = input.value.trim();
+  var input = document.getElementById('chatInput');
+  var text = input.value.trim();
   if (!text || myTurn) return;
   input.value = '';
   input.focus();
 
   if (!gameActive) {
-    broadcast({ type: 'chat', name: playerName, peerId: myPeerId, text });
+    broadcast({ type: 'chat', name: playerName, peerId: myPeerId, text: text });
     addChatMessage('normal', '你: ' + text);
     return;
   }
@@ -1016,38 +1053,31 @@ function sendGuess() {
     return;
   }
 
-  const correct = text === currentWord;
-  console.log('[sendGuess] text:', text, 'currentWord:', currentWord, 'correct:', correct, 'isRoomHost:', isRoomHost, 'myTurn:', myTurn);
-
-  if (correct) {
-    guessedPeers.add(myPeerId);
-    const points = 10 + Math.max(0, roundTimeLeft);
-    players[myPeerId].score = (players[myPeerId].score || 0) + points;
-
-    const drawerId = Object.keys(players).find(pid => players[pid].isDrawer);
-    if (drawerId && players[drawerId]) {
-      players[drawerId].score = (players[drawerId].score || 0) + 5;
-    }
-
-    broadcast({
-      type: 'guess', name: playerName, peerId: myPeerId,
-      text: '（猜对了！）', correct: true, points, players
-    });
-    addChatMessage('correct', '🎉 你猜对了！+' + points + '分');
-    updateGameUI();
-
-    // Trigger round end check
-    const nonDrawerCount = Object.keys(players).length - 1;
-    console.log('[sendGuess] guessedPeers.size:', guessedPeers.size, 'nonDrawerCount:', nonDrawerCount);
-    if (isRoomHost && !roundEnded && guessedPeers.size >= nonDrawerCount) {
-      console.log('[sendGuess] Host guessed correctly, ending round');
-      endRound();
-    } else if (!isRoomHost && guessedPeers.size >= nonDrawerCount) {
-      // Actively ask host to verify round end (fallback in case host didn't receive guess)
-      broadcast({ type: 'check_end', guessedPeers: [...guessedPeers] });
+  if (isRoomHost) {
+    var correct = text === currentWord;
+    if (correct) {
+      guessedPeers.add(myPeerId);
+      var points = 10 + Math.max(0, roundTimeLeft);
+      players[myPeerId].score = (players[myPeerId].score || 0) + points;
+      var drawerId = Object.keys(players).find(function(pid) { return players[pid].isDrawer; });
+      if (drawerId && players[drawerId]) {
+        players[drawerId].score = (players[drawerId].score || 0) + 5;
+      }
+      broadcast({
+        type: 'guess_result', name: playerName, peerId: myPeerId,
+        correct: true, points: points, players: players
+      });
+      addChatMessage('correct', '🎉 你猜对了！+' + points + '分');
+      updateGameUI();
+      if (!roundEnded && guessedPeers.size >= Object.keys(players).length - 1) {
+        endRound();
+      }
+    } else {
+      broadcast({ type: 'guess_chat', name: playerName, peerId: myPeerId, text: text });
+      addChatMessage('normal', '你: ' + text);
     }
   } else {
-    broadcast({ type: 'guess', name: playerName, peerId: myPeerId, text, correct: false });
+    broadcast({ type: 'guess', name: playerName, peerId: myPeerId, text: text, correct: false });
     addChatMessage('normal', '你: ' + text);
   }
 }
