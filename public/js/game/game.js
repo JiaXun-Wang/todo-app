@@ -479,6 +479,7 @@ function handleGameData(data, fromPeerId) {
         img.onload = function() {
           ctx.drawImage(img, 0, 0);
         };
+        img.onerror = function() { console.error('[game_state_sync] Failed to decode canvas'); };
         img.src = data.canvasData;
       }
       document.getElementById('gamePlayArea').style.display = 'block';
@@ -948,6 +949,7 @@ function handleHostTransfer(data) {
       if (data.canvasData) {
         var img = new Image();
         img.onload = function() { ctx.drawImage(img, 0, 0); };
+        img.onerror = function() { console.error('[host_transfer] Failed to decode canvas'); };
         img.src = data.canvasData;
       }
       updateGameUI();
@@ -957,12 +959,13 @@ function handleHostTransfer(data) {
       }
     }
   } else {
+    players = data.players;
     addChatMessage('system', '房主已离开，' + (players[data.newHostId] ? players[data.newHostId].name : '另一玩家') + ' 成为新房主');
     if (data.gameActive) {
-      players = data.players;
       if (data.canvasData) {
         var img = new Image();
         img.onload = function() { ctx.drawImage(img, 0, 0); };
+        img.onerror = function() { console.error('[host_transfer] Failed to decode canvas'); };
         img.src = data.canvasData;
       }
       updateGameUI();
