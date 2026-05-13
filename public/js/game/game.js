@@ -548,6 +548,7 @@ function handleGameData(data, fromPeerId) {
 function handleRemoteDraw(data) {
   switch (data.act) {
     case 'start':
+      saveCanvasState();
       lastX = data.x; lastY = data.y;
       if (data.t === 'rect' || data.t === 'circle' || data.t === 'line') {
         shapeStartX = lastX; shapeStartY = lastY;
@@ -977,6 +978,8 @@ function newRound() {
 function processNewRoundData(data) {
   if (data.word) {
     currentWord = data.word;
+  } else {
+    currentWord = '';
   }
   players = data.players;
   myTurn = data.drawerPeerId === myPeerId;
