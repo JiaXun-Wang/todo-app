@@ -461,7 +461,9 @@ body {
 
 /* Version badge */
 .version-badge {
-  position: fixed; bottom: 8px; right: 12px;
-  font-size: 11px; color: var(--text-tertiary);
-  opacity: 0.6; pointer-events: none; z-index: 50;
+  position: fixed; bottom: 10px; right: 14px;
+  font-size: 12px; color: var(--text-secondary);
+  background: var(--card-bg); border: 1px solid var(--border);
+  padding: 2px 10px; border-radius: 10px;
+  pointer-events: none; z-index: 999;
 }
