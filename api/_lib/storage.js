@@ -102,4 +102,42 @@ function jsonResponse(data, status = 200) {
   };
 }
 
-module.exports = { readUsers, writeUsers, hashPassword, generateToken, verifyToken, corsHeaders, jsonResponse };
+const ROOMS_PATH = 'data/rooms.json';
+const ROOMS_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${ROOMS_PATH}`;
+
+async function readRooms() {
+  const res = await fetch(ROOMS_API, {
+    headers: apiHeaders(),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (res.status === 404) {
+    return { rooms: [], sha: null };
+  }
+  if (!res.ok) {
+    throw new Error(`GitHub API read rooms failed: ${res.status}`);
+  }
+  const data = await res.json();
+  const content = Buffer.from(data.content, 'base64').toString('utf8');
+  return { rooms: JSON.parse(content), sha: data.sha };
+}
+
+async function writeRooms(rooms, sha) {
+  const content = Buffer.from(JSON.stringify(rooms, null, 2)).toString('base64');
+  const body = {
+    message: 'Update rooms.json',
+    content,
+    sha
+  };
+  const res = await fetch(ROOMS_API, {
+    method: 'PUT',
+    headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) {
+    throw new Error(`GitHub API write rooms failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+module.exports = { readUsers, writeUsers, readRooms, writeRooms, hashPassword, generateToken, verifyToken, corsHeaders, jsonResponse };

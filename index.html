@@ -115,6 +115,44 @@
         </div>
         <button class="btn btn-outline btn-block" onclick="joinRoom()">🚪 加入房间</button>
       </div>
+
+      <!-- Room List -->
+      <div id="roomListSection" style="margin-top:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <h4 style="margin:0;">🏠 活跃房间</h4>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" id="adminGameBtn" style="display:none;" onclick="openAdminGamePanel()">👑 管理</button>
+            <button class="btn btn-outline btn-sm" onclick="refreshRoomList()" id="refreshRoomBtn">🔄 刷新</button>
+          </div>
+        </div>
+        <div id="roomListContainer"></div>
+      </div>
+    </div>
+
+    <!-- Join Request Modal (for host) -->
+    <div class="modal-overlay" id="joinRequestModal" style="display:none;" onclick="if(event.target===this)closeJoinRequest()">
+      <div class="modal">
+        <h3>🔔 加入申请</h3>
+        <p style="margin-bottom:12px;"><strong id="joinRequestName"></strong> 想加入你的房间</p>
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="rejectJoinRequest()">拒绝</button>
+          <button class="btn btn-primary" onclick="approveJoinRequest()">同意</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Game Panel -->
+    <div class="admin-panel-overlay" id="adminGamePanel" style="display:none;" onclick="if(event.target===this)closeAdminGamePanel()">
+      <div class="admin-panel">
+        <h3>👑 房间管理</h3>
+        <div style="margin-bottom:12px;">
+          <button class="btn btn-danger btn-sm" onclick="adminCloseAllRooms()">⚠ 一键关闭所有房间</button>
+        </div>
+        <div id="adminRoomList"></div>
+        <div class="modal-actions" style="margin-top:16px;">
+          <button class="btn btn-outline" onclick="closeAdminGamePanel()">关闭</button>
+        </div>
+      </div>
     </div>
 
     <div id="gameRoom" style="display:none;">
@@ -137,6 +175,7 @@
           </select>
           <button class="btn btn-outline btn-sm" onclick="reconnectRoom()" title="重新连接">🔄</button>
           <button class="btn btn-primary btn-sm" id="startGameBtn" onclick="startGame()" style="display:none;">开始游戏</button>
+          <button class="btn btn-outline btn-sm" id="adminGameBtnRoom" style="display:none;" onclick="openAdminGamePanel()">👑 管理</button>
           <button class="btn btn-outline btn-sm" id="leaveRoomBtn" onclick="leaveRoom()">离开</button>
         </div>
       </div>

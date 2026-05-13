@@ -122,7 +122,7 @@ function doDraw(e) {
     previewShape(pos.x, pos.y);
   } else {
     drawLine(lastX, lastY, pos.x, pos.y, drawColor, drawSize, drawTool);
-    sendDrawData({ act: 'move', x: pos.x, y: pos.y });
+    sendDrawData({ act: 'move', x: pos.x, y: pos.y, c: drawColor, s: drawSize, t: drawTool });
   }
   lastX = pos.x; lastY = pos.y;
 }
@@ -171,7 +171,7 @@ function doDrawTouch(t) {
     previewShape(pos.x, pos.y);
   } else {
     drawLine(lastX, lastY, pos.x, pos.y, drawColor, drawSize, drawTool);
-    sendDrawData({ act: 'move', x: pos.x, y: pos.y });
+    sendDrawData({ act: 'move', x: pos.x, y: pos.y, c: drawColor, s: drawSize, t: drawTool });
   }
   lastX = pos.x; lastY = pos.y;
 }
@@ -407,6 +407,10 @@ function handleGameData(data, fromPeerId) {
         addChatMessage('system', data.name + ' 加入了房间 🎉');
       }
       updateGameUI();
+      // Sync player join to server
+      if (isRoomHost) {
+        apiGameRooms({ action: 'player_join', roomId, playerName: data.name, peerId: data.peerId }).catch(() => {});
+      }
       break;
 
     case 'player_list':
@@ -633,6 +637,9 @@ function resetToLobby() {
   currentRound = 0;
   guessedPeers.clear();
   if (roundTimer) { clearInterval(roundTimer); roundTimer = null; }
+  stopHostPolling();
+  stopHeartbeat();
+  stopJoinPolling();
   document.getElementById('gameLobby').style.display = 'block';
   document.getElementById('gameRoom').style.display = 'none';
   document.getElementById('gamePlayArea').style.display = 'none';
@@ -808,6 +815,10 @@ function leaveRoom() {
 function handlePlayerDisconnect(peerId) {
   const name = players[peerId]?.name || peerId;
   const wasHost = players[peerId]?.isHost || (isRoomHost && peerId === Object.keys(players).find(pid => players[pid]?.isHost));
+  // Sync player leave to server
+  if (isRoomHost && name && name !== playerName) {
+    apiGameRooms({ action: 'player_leave', roomId, playerName: name }).catch(() => {});
+  }
   delete connections[peerId];
   delete players[peerId];
 
@@ -844,6 +855,11 @@ function handleHostTransfer(data) {
     isRoomHost = true;
     document.getElementById('startGameBtn').style.display = 'block';
     addChatMessage('system', '🎩 你成为了新房主！');
+    // Register as new host on server
+    apiGameRooms({ action: 'takeover', roomId, hostName: playerName }).then(() => {
+      startHostPolling();
+      startHeartbeat();
+    });
     // Restore game state
     if (data.gameActive) {
       players = data.players;
@@ -1082,6 +1098,12 @@ function updateGameUI() {
   // Room code
   const cd = document.getElementById('roomCodeDisplay');
   if (cd && roomId) cd.textContent = roomId;
+
+  // Admin button
+  const ab = document.getElementById('adminGameBtnRoom');
+  if (ab && currentUser && currentUser.role === 'admin') {
+    ab.style.display = '';
+  }
 }
 
 // === Session persistence for page refresh ===
@@ -1159,8 +1181,301 @@ function switchToGameTab() {
   const gameTabBtn = document.querySelector('.tab-btn:nth-child(2)');
   if (gameTabBtn) gameTabBtn.classList.add('active');
   document.getElementById('panel-game').classList.add('active');
+  startRoomListRefresh();
+  if (currentUser && currentUser.role === 'admin') {
+    document.getElementById('adminGameBtn').style.display = '';
+  }
 }
 
 function addGameToast(msg) {
   showToast(msg);
 }
+
+// ==================== ROOM MANAGEMENT (server-backed) ====================
+let roomListTimer = null;
+let hostPollTimer = null;
+let joinPollTimer = null;
+let heartbeatTimer = null;
+let pendingJoinRoomId = null;
+let pendingJoinRoomName = null;
+let currentJoinRequest = null; // { name } - the join request being reviewed by host
+
+function apiGameRooms(body) {
+  return apiCall('/api/game/rooms', body);
+}
+
+// --- Room List ---
+function startRoomListRefresh() {
+  refreshRoomList();
+  if (roomListTimer) clearInterval(roomListTimer);
+  roomListTimer = setInterval(refreshRoomList, 10000);
+}
+
+function stopRoomListRefresh() {
+  if (roomListTimer) { clearInterval(roomListTimer); roomListTimer = null; }
+}
+
+async function refreshRoomList() {
+  try {
+    const res = await apiGameRooms(null);
+    if (res.error) return;
+    renderRoomList(res.rooms || []);
+  } catch (e) {
+    // Silently fail — list stays stale until next refresh
+  }
+}
+
+function renderRoomList(rooms) {
+  const container = document.getElementById('roomListContainer');
+  if (!container) return;
+  if (rooms.length === 0) {
+    container.innerHTML = '<div class="room-empty">暂无活跃房间，快来创建一个吧~</div>';
+    return;
+  }
+  container.innerHTML = rooms.map(r => {
+    const isMyRoom = roomId && r.id === roomId;
+    return `<div class="room-card">
+      <div class="room-card-info">
+        <div class="room-card-name">${escapeHtml(r.name)}</div>
+        <div class="room-card-meta">房主: ${escapeHtml(r.hostName)}</div>
+      </div>
+      <span class="room-card-players">👤 ${r.playerCount || 0}</span>
+      <div class="room-card-actions">
+        ${isMyRoom
+          ? '<span style="font-size:12px;color:var(--accent);font-weight:500;">当前房间 ✓</span>'
+          : '<button class="btn btn-primary btn-sm" onclick="requestJoinRoom(\'' + escapeHtml(r.id) + '\',\'' + escapeHtml(r.name) + '\')">申请加入</button>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// --- Join Request (applicant side) ---
+function requestJoinRoom(roomId, roomName) {
+  const name = document.getElementById('gameNickname').value.trim();
+  if (!name) { showToast('请先输入昵称'); return; }
+  playerName = name;
+  pendingJoinRoomId = roomId;
+  pendingJoinRoomName = roomName;
+
+  apiGameRooms({ action: 'request_join', roomId, playerName }).then(res => {
+    if (res.error) { showToast(res.error); return; }
+    showToast('申请已发送，等待房主同意...');
+    startJoinPolling();
+  });
+}
+
+function startJoinPolling() {
+  if (joinPollTimer) clearInterval(joinPollTimer);
+  joinPollTimer = setInterval(async () => {
+    if (!pendingJoinRoomId) { stopJoinPolling(); return; }
+    try {
+      const res = await apiGameRooms({ action: 'poll_join', roomId: pendingJoinRoomId, playerName });
+      if (res.status === 'approved') {
+        stopJoinPolling();
+        showToast('房主已同意，正在加入房间...');
+        document.getElementById('joinRoomCode').value = pendingJoinRoomId;
+        joinRoom();
+      } else if (res.status === 'rejected') {
+        stopJoinPolling();
+        showToast('申请被拒绝');
+        pendingJoinRoomId = null;
+      } else if (res.status === 'closed') {
+        stopJoinPolling();
+        showToast('房间已关闭');
+        pendingJoinRoomId = null;
+      }
+    } catch (e) {}
+  }, 3000);
+}
+
+function stopJoinPolling() {
+  if (joinPollTimer) { clearInterval(joinPollTimer); joinPollTimer = null; }
+  pendingJoinRoomId = null;
+}
+
+// --- Host Polling (for join requests & closed check) ---
+function startHostPolling() {
+  if (hostPollTimer) clearInterval(hostPollTimer);
+  hostPollTimer = setInterval(async () => {
+    if (!roomId || !isRoomHost) { stopHostPolling(); return; }
+    try {
+      const res = await apiGameRooms({ action: 'poll', roomId });
+      if (!res || res.error) return;
+
+      // Check if room was closed by admin
+      if (res.status === 'closed') {
+        stopHostPolling();
+        stopHeartbeat();
+        addChatMessage('system', '⚠ 房间已被管理员关闭');
+        showToast('房间已被管理员关闭');
+        broadcast({ type: 'game_over', players, reason: '房间已被管理员关闭' });
+        setTimeout(resetToLobby, 1500);
+        return;
+      }
+
+      // Check join requests
+      const requests = res.joinRequests || [];
+      if (requests.length > 0 && !currentJoinRequest) {
+        currentJoinRequest = requests[0];
+        document.getElementById('joinRequestName').textContent = currentJoinRequest.name;
+        document.getElementById('joinRequestModal').style.display = 'flex';
+      }
+    } catch (e) {}
+  }, 5000);
+}
+
+function stopHostPolling() {
+  if (hostPollTimer) { clearInterval(hostPollTimer); hostPollTimer = null; }
+}
+
+function approveJoinRequest() {
+  if (!currentJoinRequest) return;
+  apiGameRooms({ action: 'approve_join', roomId, playerName: currentJoinRequest.name }).then(() => {
+    document.getElementById('joinRequestModal').style.display = 'none';
+    currentJoinRequest = null;
+  });
+}
+
+function rejectJoinRequest() {
+  if (!currentJoinRequest) return;
+  apiGameRooms({ action: 'reject_join', roomId, playerName: currentJoinRequest.name }).then(() => {
+    document.getElementById('joinRequestModal').style.display = 'none';
+    currentJoinRequest = null;
+  });
+}
+
+function closeJoinRequest() {
+  document.getElementById('joinRequestModal').style.display = 'none';
+  // Don't clear currentJoinRequest — host will see it again on next poll if not handled
+}
+
+// --- Heartbeat ---
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  sendHeartbeat();
+  heartbeatTimer = setInterval(sendHeartbeat, 30000);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+async function sendHeartbeat() {
+  if (!roomId || !isRoomHost) return;
+  try {
+    const res = await apiGameRooms({ action: 'heartbeat', roomId });
+    if (res && res.closed) {
+      stopHeartbeat();
+      stopHostPolling();
+      addChatMessage('system', '⚠ 房间已被管理员关闭');
+      showToast('房间已被管理员关闭');
+      broadcast({ type: 'game_over', players, reason: '房间已被管理员关闭' });
+      setTimeout(resetToLobby, 1500);
+    }
+  } catch (e) {}
+}
+
+// --- Admin ---
+function openAdminGamePanel() {
+  document.getElementById('adminGamePanel').style.display = 'flex';
+  loadAdminRooms();
+}
+
+function closeAdminGamePanel() {
+  document.getElementById('adminGamePanel').style.display = 'none';
+}
+
+async function loadAdminRooms() {
+  const list = document.getElementById('adminRoomList');
+  try {
+    const res = await apiGameRooms({ action: 'admin_list' });
+    if (res.error) { list.innerHTML = '<p style="color:var(--danger);">' + res.error + '</p>'; return; }
+    const rooms = res.rooms || [];
+    if (rooms.length === 0) {
+      list.innerHTML = '<p style="color:var(--text-tertiary);text-align:center;padding:20px;">暂无房间</p>';
+      return;
+    }
+    list.innerHTML = rooms.map(r => {
+      const isActive = r.status === 'active';
+      return `<div class="admin-room-row">
+        <div class="admin-room-info">
+          <div class="admin-room-name">${escapeHtml(r.name)} <span class="admin-room-status ${isActive ? 'status-active' : 'status-closed'}">${isActive ? '活跃' : '已关闭'}</span></div>
+          <div class="admin-room-meta">房主: ${escapeHtml(r.hostName)} | 👤 ${(r.players||[]).length}人 | ${(r.createdAt||'').slice(0,16)}</div>
+        </div>
+        <div class="admin-room-actions">
+          ${isActive ? '<button class="btn btn-danger btn-sm" onclick="adminCloseRoom(\'' + escapeHtml(r.id) + '\')">关闭</button>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<p style="color:var(--danger);">加载失败</p>';
+  }
+}
+
+async function adminCloseRoom(roomId) {
+  if (!confirm('确定关闭房间 ' + roomId + ' 吗？')) return;
+  const res = await apiGameRooms({ action: 'admin_close', roomId });
+  if (res.error) { showToast(res.error); return; }
+  showToast(res.message);
+  loadAdminRooms();
+  refreshRoomList();
+}
+
+async function adminCloseAllRooms() {
+  if (!confirm('⚠ 确定关闭所有房间吗？此操作不可撤销！')) return;
+  const res = await apiGameRooms({ action: 'admin_close' });
+  if (res.error) { showToast(res.error); return; }
+  showToast(res.message);
+  loadAdminRooms();
+  refreshRoomList();
+}
+
+// --- Override createRoom to register on server ---
+const origCreateRoom = createRoom;
+createRoom = function() {
+  origCreateRoom();
+
+  const registerInterval = setInterval(() => {
+    if (myPeerId && isRoomHost) {
+      clearInterval(registerInterval);
+      const name = roomName || playerName + '的房间';
+      apiGameRooms({ action: 'create', roomId: myPeerId, name, hostName: playerName, hostPeerId: myPeerId }).then(() => {
+        startHostPolling();
+        startHeartbeat();
+        refreshRoomList();
+      });
+    }
+  }, 500);
+};
+
+// --- Override leaveRoom to deregister ---
+const origLeaveRoom = leaveRoom;
+leaveRoom = function() {
+  stopHostPolling();
+  stopHeartbeat();
+  stopJoinPolling();
+  if (roomId && isRoomHost) {
+    // Only close room on server if no other players
+    const otherCount = Object.keys(players).filter(pid => pid !== myPeerId).length;
+    if (otherCount === 0) {
+      apiGameRooms({ action: 'close', roomId }).catch(() => {});
+    }
+  } else if (roomId && !isRoomHost) {
+    apiGameRooms({ action: 'player_leave', roomId, playerName }).catch(() => {});
+  }
+  origLeaveRoom();
+};
+
+// --- Hook into tab switch for room list ---
+const origSwitchTab = switchTab;
+switchTab = function(tab) {
+  origSwitchTab(tab);
+  if (tab === 'game') {
+    startRoomListRefresh();
+    if (currentUser && currentUser.role === 'admin') {
+      document.getElementById('adminGameBtn').style.display = '';
+    }
+  } else {
+    stopRoomListRefresh();
+  }
+};
