@@ -11,7 +11,13 @@
         "peerId": "111"
       }
     ],
-    "joinRequests": [],
+    "joinRequests": [
+      {
+        "name": "bb",
+        "peerId": null,
+        "requestedAt": "2026-05-13T06:38:43.447Z"
+      }
+    ],
     "createdAt": "2026-05-13T06:38:24.502Z",
     "lastHeartbeat": "2026-05-13T06:38:26.874Z"
   }
