@@ -458,3 +458,10 @@ body {
 }
 .status-active { background: #e8f5e9; color: #4caf50; }
 .status-closed { background: var(--danger-light); color: var(--danger); }
+
+/* Version badge */
+.version-badge {
+  position: fixed; bottom: 8px; right: 12px;
+  font-size: 11px; color: var(--text-tertiary);
+  opacity: 0.6; pointer-events: none; z-index: 50;
+}
